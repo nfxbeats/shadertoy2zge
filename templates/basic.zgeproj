@@ -22,7 +22,7 @@ uMouse=vector4(0.0,0.0,0.0,0.0);]]>
   <Content>
     <Shader Name="MainShader">
       <VertexShaderSource>
-<![CDATA[#version 120
+<![CDATA[#version 130
 
 void main(){
   vec4 vertex = gl_Vertex;
@@ -31,7 +31,7 @@ void main(){
 }]]>
       </VertexShaderSource>
       <FragmentShaderSource>
-<![CDATA[#version 120
+<![CDATA[#version 130
 
 uniform vec2 iResolution,iViewport;
 uniform float iTime;
