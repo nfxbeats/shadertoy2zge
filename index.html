@@ -18,6 +18,12 @@
                 engine projects. Ready for use with the standalone engine or the <a href="https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/ZGameEditor%20Visualizer.htm">FL Studio</a> plugin.</p>
             <p><small>Note: <code>texture()</code> calls in your shader code will be automatically converted to <code>texture2D()</code> for compatibility with ZGameEditor.</small></p>
             <textarea id="inputCode" placeholder="Paste your ShaderToy code here..." spellcheck="false"></textarea>
+            <div style="margin-bottom: 10px;">
+                <label for="templateSelect">Template:</label>
+                <select id="templateSelect">
+                    <!-- Templates will be populated dynamically -->
+                </select>
+            </div>
             <div id="ichannelConfig" style="margin-bottom: 10px;">
                 <div id="ichannel0Row" style="display:none; margin-bottom: 5px;">
                     <label for="ichannel0Source">iChannel0 Source:</label>

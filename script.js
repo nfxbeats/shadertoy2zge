@@ -1,5 +1,69 @@
 const inputCodeElement = document.getElementById('inputCode');
 const iChannelConfigDiv = document.getElementById('ichannelConfig');
+const templateSelect = document.getElementById('templateSelect');
+
+// Function to populate template selector
+async function populateTemplateSelector() {
+    // Known templates (you can add new ones here manually)
+    const knownTemplates = [
+        { value: 'templates/basic_120.zgeproj', text: 'Basic GLSL 120' },
+        { value: 'templates/basic_130.zgeproj', text: 'Basic GLSL 130' }
+    ];
+
+    // Add known templates first
+    knownTemplates.forEach(template => {
+        const option = document.createElement('option');
+        option.value = template.value;
+        option.textContent = template.text;
+        templateSelect.appendChild(option);
+    });
+
+    // Try to discover additional templates by testing common patterns
+    const commonTemplateNames = [
+        'basic', 'template', 'default', 'simple', 'advanced', 'minimal'
+    ];
+    const glVersions = ['110', '120', '130', '140', '150', '330', '400', '410', '420', '430', '440', '450'];
+
+    for (const name of commonTemplateNames) {
+        for (const version of glVersions) {
+            const templatePath = `templates/${name}${version}.zgeproj`;
+            const underscoreTemplatePath = `templates/${name}_${version}.zgeproj`;
+
+            // Test if template exists by trying to fetch it (without actually loading the full content)
+            try {
+                const response = await fetch(templatePath, { method: 'HEAD' });
+                if (response.ok && !knownTemplates.some(t => t.value === templatePath)) {
+                    const option = document.createElement('option');
+                    option.value = templatePath;
+                    option.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} ${version}`;
+                    templateSelect.appendChild(option);
+                }
+            } catch (e) {
+                // Template doesn't exist, continue
+            }
+
+            try {
+                const response = await fetch(underscoreTemplatePath, { method: 'HEAD' });
+                if (response.ok && !knownTemplates.some(t => t.value === underscoreTemplatePath)) {
+                    const option = document.createElement('option');
+                    option.value = underscoreTemplatePath;
+                    option.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} ${version}`;
+                    templateSelect.appendChild(option);
+                }
+            } catch (e) {
+                // Template doesn't exist, continue
+            }
+        }
+    }
+
+    // Set default to basic_130.zgeproj if it exists
+    if (knownTemplates.some(t => t.value === 'templates/basic_130.zgeproj')) {
+        templateSelect.value = 'templates/basic_130.zgeproj';
+    }
+}
+
+// Populate template selector on page load
+populateTemplateSelector();
 
 // Function to show/hide iChannel config rows based on input code
 function updateIChannelVisibility() {
@@ -62,6 +126,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
     let zgedelta = false; // Flag for ZGEDelta speed parameter
     let title = "ZGEshader"; // Default shader title
     let author = "Shader author"; // Default shader author
+    let comment = ""; // Default shader comment
     const ZGEvars = []; // Array to store ZGE custom parameters
     let finalOutputCode = ""; // Store the final output code for download/copy
     
@@ -109,7 +174,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             lineIsZGEVar = true; // This line is a ZGE var, so don't add to userShaderBody
         }
 
-        // Extract Title, Author, ZGEDelta from comments
+        // Extract Title, Author, Comment, ZGEDelta from comments
         if (line.includes("//")) {
             const lcaseLine = line.toLowerCase();
             let titleIndex = lcaseLine.indexOf("title:");
@@ -120,6 +185,11 @@ document.getElementById('convertButton').addEventListener('click', async functio
             let authorIndex = lcaseLine.indexOf("author:");
             if (authorIndex !== -1) {
                 author = line.substring(authorIndex + 7).trim(); // "author:".length is 7
+                return; // Don't add this comment line to userShaderBody
+            }
+            let commentIndex = lcaseLine.indexOf("comment:");
+            if (commentIndex !== -1) {
+                comment = line.substring(commentIndex + 8).trim(); // "comment:".length is 8
                 return; // Don't add this comment line to userShaderBody
             }
             let zgedeltaIndex = lcaseLine.indexOf("zgedelta");
@@ -139,8 +209,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
     }
 
     // 2. Fetch and process the ZGE project template
+    const selectedTemplate = templateSelect.value;
     try {
-        const response = await fetch('./templates/basic.zgeproj');
+        const response = await fetch(selectedTemplate);
         if (!response.ok) {
             // More specific error for network vs file not found (though fetch API blurs this)
             throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
@@ -287,7 +358,14 @@ document.getElementById('convertButton').addEventListener('click', async functio
             templateXMLText = templateXMLText.substring(0, contentEndIndex) + newBitmapsXMLString + templateXMLText.substring(contentEndIndex);
         }
 
-        // 5d. Splice the final prepared shader code into the template
+        // 5d. Modify the shader tag to include comment if present
+        if (comment) {
+            const shaderTagPattern = '<Shader Name="MainShader">';
+            const shaderTagWithComment = `<Shader Name="MainShader" Comment="${comment}">`;
+            templateXMLText = templateXMLText.replace(shaderTagPattern, shaderTagWithComment);
+        }
+
+        // 5e. Splice the final prepared shader code into the template
         const shaderStartMarker = "//ShaderToy code start."; // Marker in template
         const shaderEndMarker = "//ShaderToy code end.";   // Marker in template
         if(templateXMLText.includes(shaderStartMarker) && templateXMLText.includes(shaderEndMarker)) {
@@ -330,7 +408,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
             shaderVarsXMLString += '"/>\n';
         });
-        templateXMLText = templateXMLText.replace('<ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>\n', shaderVarsXMLString);
+        templateXMLText = templateXMLText.replace('        <ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>\n', shaderVarsXMLString);
 
         // 5h. Adjust Speed parameter if zgedelta is used
         if (zgedelta) {
@@ -521,7 +599,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
     // Set the download link with the converted code
     const dataUri = 'data:text/plain;charset=utf-8,' + encodeURIComponent(finalOutputCode);
     downloadButton.setAttribute('href', dataUri);
-    downloadButton.setAttribute('download', author + ' ' + title + '.zgeproj');
+    downloadButton.setAttribute('download', title + '.zgeproj');
     copyButton.onclick = function() {
         navigator.clipboard.writeText(finalOutputCode);
         alert("Copied");
