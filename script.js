@@ -2,6 +2,50 @@ const inputCodeElement = document.getElementById('inputCode');
 const iChannelConfigDiv = document.getElementById('ichannelConfig');
 const templateSelect = document.getElementById('templateSelect');
 
+// Function to dynamically create iChannel dropdowns
+function createIChannelDropdowns() {
+    const channelOptions = [
+        { value: 'none', text: 'None' },
+        { value: 'feedback', text: 'Feedback' },
+        { value: 'bitmap1', text: 'Image Src' }
+        // { value: 'bitmap2_new', text: 'Source2 (Nova Textura)' },
+        // { value: 'bitmap3_new', text: 'Source3 (Nova Textura)' },
+        // { value: 'bitmap4_new', text: 'Source4 (Nova Textura)' }
+    ];
+
+    for (let i = 0; i < 4; i++) {
+        // Create row div
+        const rowDiv = document.createElement('div');
+        rowDiv.id = `ichannel${i}Row`;
+        rowDiv.style.display = 'none';
+        rowDiv.style.marginBottom = '5px';
+
+        // Create label
+        const label = document.createElement('label');
+        label.htmlFor = `ichannel${i}Source`;
+        label.textContent = `iChannel${i} Source:`;
+        rowDiv.appendChild(label);
+
+        // Create select
+        const select = document.createElement('select');
+        select.id = `ichannel${i}Source`;
+
+        // Add options
+        channelOptions.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option.value;
+            optionElement.textContent = option.text;
+            select.appendChild(optionElement);
+        });
+
+        rowDiv.appendChild(select);
+        iChannelConfigDiv.appendChild(rowDiv);
+    }
+}
+
+// Create iChannel dropdowns on page load
+createIChannelDropdowns();
+
 // Function to populate template selector
 async function populateTemplateSelector() {
     // Known templates (you can add new ones here manually)
