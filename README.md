@@ -7,8 +7,8 @@ ZGameEditor provides a built-in language for creating games, visualizations and 
 ## What it does currently
 - Adds user provided Shadertoy code into the appropriate spot in a template.
 - Ensures texture calls are replaced with ZGE's texture2D.
-- Enables access to the current video texture as iChannel0.
-- Enables access to Image Src drop-down texture as iChannel1.
+- Enables access to the current video texture.
+- Enables access to Image Src drop-down texture.
 ## Comment-Based Data Extraction
 
 The converter extracts metadata from special comment lines in your shader code:
@@ -29,6 +29,17 @@ Example usage:
 - **NEW:** Extracts bool variable declarations prefixed with ZGE (ex: ZGEEnableEffect, ZGEInvert), adds them as float uniforms (0.0/1.0) and creates checkbox controls in ZGE.
 - If keyword **ZGEdelta** is included in any comments, a Speed slider will be added that will adjust deltaTime so as to speed up or reverse time for graphic processing.
 - Provides a download link of the resulting project via data uri.
+
+## A note about iChannel Sources
+ShaderToy allows for up to 4 textures to be used. These textures are called iChannel0, iChannel1, iChannel2, and iChannel3. 
+
+Currently with this converter only supports 2 textures to be used in the shader. 
+
+- Feedback: This is the scene that the shader is layered above. You ShaderToy code should use this as a background layer.
+- Image Src: This is the image source drop down on the ZGE layer properties.
+
+You can defined any valid iChannel for either purpose using the iChannel Source dropdown. A shader that demonstrates this can be seen here:
+https://www.shadertoy.com/view/WXtcDf 
 
 ## Extraction of float and bool variables
 
