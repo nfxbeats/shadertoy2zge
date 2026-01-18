@@ -9,7 +9,22 @@ ZGameEditor provides a built-in language for creating games, visualizations and 
 - Ensures texture calls are replaced with ZGE's texture2D.
 - Enables access to the current video texture as iChannel0.
 - Enables access to Image Src drop-down texture as iChannel1.
-- Extracts and adds to project file, user provided name and author from comments like // Title: Blur Author: R3V1Z3
+## Comment-Based Data Extraction
+
+The converter extracts metadata from special comment lines in your shader code:
+
+- **`// Title: [name]`** - Sets the project title (used in download filename)
+- **`// Author: [name]`** - Sets the project author (stored in ZGE project metadata and use for credit on the Export dialog.)
+- **`// Comment: [text]`** - Adds a comment to the shader component in ZGE MainShader (not visible, just stored)
+- **`// ZGEdelta`** - Adds a Speed slider that controls animation speed
+
+Example usage:
+```
+// Title: Rainbow Vortex
+// Author: CreativeCoder
+// Comment: A mesmerizing color-changing effect
+// ZGEdelta
+```
 - Extracts any float variable declarations prefixed with ZGE (ex: ZGEtimeFactor, ZGEratio), adds them as uniforms and creates respective parameters to adjust their values.
 - **NEW:** Extracts bool variable declarations prefixed with ZGE (ex: ZGEEnableEffect, ZGEInvert), adds them as float uniforms (0.0/1.0) and creates checkbox controls in ZGE.
 - If keyword **ZGEdelta** is included in any comments, a Speed slider will be added that will adjust deltaTime so as to speed up or reverse time for graphic processing.

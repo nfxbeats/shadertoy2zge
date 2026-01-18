@@ -219,53 +219,106 @@ document.getElementById('convertButton').addEventListener('click', async functio
         let templateXMLText = await response.text();
 
         // 3. iChannel Processing: Determine necessary iChannel uniforms and material textures
+        // TWO-PASS APPROACH: Ensures feedback is always assigned to the lowest channel
         let iChannelUniformsDeclaration = ""; // For shader code
         let materialTexturesXMLString = "";   // For ZGEP <Textures>
         let newBitmapsXMLString = "";         // For ZGEP <Content> if new bitmaps are needed
         const definedBitmapResources = new Set(); // Track new bitmaps to avoid duplicates
 
+        // FIRST PASS: Collect all active iChannels and their configurations
+        const activeChannels = [];
         for (let i = 0; i < 4; i++) {
             const iChannelRow = document.getElementById(`ichannel${i}Row`);
             // Check if the iChannel UI is visible (meaning iChannelN was detected in shader)
             if (iChannelRow && iChannelRow.style.display !== 'none') {
                 const selectedSource = document.getElementById(`ichannel${i}Source`).value;
-                tex = i + 1
-                const builtinName = `tex${tex}`;
-                const uniformName = `iChannel${i}`;
-
                 if (selectedSource !== "none") {
-                    iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
-                    
-                    let textureResourceName; // Name of the bitmap resource in ZGEP
-                    switch (selectedSource) {
-                        case "feedback":
-                            // This refers to ZGE's built-in feedback mechanism.
-                            // The template already contains <MaterialTexture Name="FeedbackMaterialTexture" ... />.
-                            // We link the shader's iChannelN uniform to this existing "FeedbackMaterialTexture".
-                            textureResourceName = "FeedbackMaterialTexture";
-                            materialTexturesXMLString += `        <MaterialTexture Name="${textureResourceName}" TexCoords="1" TextureSlot="${i}"/>\n`;
-                            break;
-                        case "bitmap1":
-                            // This refers to a predefined "Bitmap1" in the template.
-                            textureResourceName = "Bitmap1";
-                            materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${i}"/>\n`;
-                            break;
-                        case "bitmap2_new":
-                        case "bitmap3_new":
-                        case "bitmap4_new":
-                            // User wants to create a new texture resource.
-                            const n = parseInt(selectedSource.charAt(6)); // e.g., "bitmap2_new" -> 2
-                            textureResourceName = `Bitmap${n}_custom`; // e.g., Bitmap2_custom
-                            materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${i}"/>\n`;
-                            if (!definedBitmapResources.has(textureResourceName)) {
-                                newBitmapsXMLString += `    <Bitmap Name="${textureResourceName}" Width="256" Height="256"><Producers><BitmapCells CellStyle="5"/></Producers></Bitmap>\n`;
-                                definedBitmapResources.add(textureResourceName);
-                            }
-                            break;
-                    }
+                    activeChannels.push({
+                        originalIndex: i,
+                        selectedSource: selectedSource
+                    });
                 }
             }
         }
+
+        // SORT: Place feedback first, then all other textures
+        activeChannels.sort((a, b) => {
+            if (a.selectedSource === "feedback" && b.selectedSource !== "feedback") return -1;
+            if (a.selectedSource !== "feedback" && b.selectedSource === "feedback") return 1;
+            return a.originalIndex - b.originalIndex; // Maintain original order for non-feedback
+        });
+
+        // Create a mapping from original indices to new indices
+        const channelMapping = {}; // e.g., {3: 0, 1: 1} means iChannel3 -> iChannel0, iChannel1 -> iChannel1
+        activeChannels.forEach((channel, newIndex) => {
+            channelMapping[channel.originalIndex] = newIndex;
+        });
+
+        // SECOND PASS: Assign to slots sequentially and generate declarations
+        activeChannels.forEach((channel, newSlotIndex) => {
+            const tex = newSlotIndex + 1;
+            const builtinName = `tex${tex}`;
+            const uniformName = `iChannel${newSlotIndex}`;
+            const selectedSource = channel.selectedSource;
+
+            iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
+            
+            let textureResourceName; // Name of the bitmap resource in ZGEP
+            switch (selectedSource) {
+                case "feedback":
+                    // This refers to ZGE's built-in feedback mechanism.
+                    // The template already contains <MaterialTexture Name="FeedbackMaterialTexture" ... />.
+                    // We link the shader's iChannelN uniform to this existing "FeedbackMaterialTexture".
+                    textureResourceName = "FeedbackMaterialTexture";
+                    materialTexturesXMLString += `        <MaterialTexture Name="${textureResourceName}" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
+                    break;
+                case "bitmap1":
+                    // This refers to a predefined "Bitmap1" in the template.
+                    textureResourceName = "Bitmap1";
+                    materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
+                    break;
+                case "bitmap2_new":
+                case "bitmap3_new":
+                case "bitmap4_new":
+                    // User wants to create a new texture resource.
+                    const n = parseInt(selectedSource.charAt(6)); // e.g., "bitmap2_new" -> 2
+                    textureResourceName = `Bitmap${n}_custom`; // e.g., Bitmap2_custom
+                    materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
+                    if (!definedBitmapResources.has(textureResourceName)) {
+                        newBitmapsXMLString += `    <Bitmap Name="${textureResourceName}" Width="256" Height="256"><Producers><BitmapCells CellStyle="5"/></Producers></Bitmap>\n`;
+                        definedBitmapResources.add(textureResourceName);
+                    }
+                    break;
+            }
+        });
+
+        // UPDATE SHADER CODE: Replace old channel references with new ones
+        // Iterate in reverse order of original indices to avoid replacing substrings incorrectly
+        // e.g., replace iChannel3 before iChannel0 to avoid "iChannel0" matching in "iChannel03"
+        Object.keys(channelMapping)
+            .map(k => parseInt(k))
+            .sort((a, b) => b - a) // Sort descending
+            .forEach(originalIndex => {
+                const newIndex = channelMapping[originalIndex];
+                if (originalIndex !== newIndex) {
+                    // Replace all occurrences of iChannelX with a temporary placeholder
+                    const placeholder = `__TEMP_CHANNEL_${originalIndex}__`;
+                    const originalPattern = new RegExp(`\\biChannel${originalIndex}\\b`, 'g');
+                    userShaderBody = userShaderBody.replace(originalPattern, placeholder);
+                }
+            });
+
+        // Now replace all placeholders with the new indices
+        Object.keys(channelMapping)
+            .map(k => parseInt(k))
+            .forEach(originalIndex => {
+                const newIndex = channelMapping[originalIndex];
+                if (originalIndex !== newIndex) {
+                    const placeholder = `__TEMP_CHANNEL_${originalIndex}__`;
+                    const placeholderPattern = new RegExp(placeholder, 'g');
+                    userShaderBody = userShaderBody.replace(placeholderPattern, `iChannel${newIndex}`);
+                }
+            });
 
         // 4. Prepare the final shader code for injection
         // Remove any hardcoded Shadertoy iChannel defines or old tex1/tex2 uniforms from user's shader body,

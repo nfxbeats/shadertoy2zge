@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<ZApplication Name="App" Caption="ZGameEditor application" FileVersion="2">
+  <OnUpdate>
+    <ZExpression>
+      <Expression>
+<![CDATA[//Optional: Move  to Constants to ZLibrary before release.
+float Speed=1.0;
+float delta=app.DeltaTime*Speed;
+uTime+=delta;
+
+//Most used ShaderToy uniform variables
+uResolution=vector2(app.ViewportWidth,app.ViewportHeight);
+uViewport=vector2(app.ViewportX,app.ViewportY);
+uMouse=vector4(0.0,0.0,0.0,0.0);]]>
+      </Expression>
+    </ZExpression>
+  </OnUpdate>
+  <OnRender>
+    <UseMaterial Material="mCanvas"/>
+    <RenderSprite/>
+  </OnRender>
+  <Content>
+    <Shader Name="MainShader">
+      <VertexShaderSource>
+<![CDATA[#version 130
+
+void main(){
+  vec4 vertex = gl_Vertex;
+  vertex.xy *= 2.0;
+  gl_Position = vertex;
+}]]>
+      </VertexShaderSource>
+      <FragmentShaderSource>
+<![CDATA[#version 130
+
+uniform vec2 iResolution,iViewport;
+uniform float iTime;
+uniform vec4 iMouse;
+uniform sampler2D iChannel0;
+uniform float ZGESize;
+uniform float ZGEPositionX;
+uniform float ZGEPositionY;
+uniform float ZGEHue;
+uniform float ZGESaturation;
+uniform float ZGELightness;
+uniform float ZGEAlpha;
+
+uniform sampler2D FeedbackMaterialTexture;
+#define iChannel0 FeedbackMaterialTexture
+
+
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void mainImage(out vec4 fragColor, vec2 fragCoord) {
+    float width = iResolution.x;
+    float height = iResolution.y;
+    float aspect = width / height;
+    
+    // Normalized coordinates for background sampling
+    vec2 uv = fragCoord / vec2(width, height);
+    
+    // Calculate diamond shape coordinates
+    vec2 p = uv;
+    p.x *= aspect;
+    float centerX = ZGEPositionX * aspect;
+    float centerY = ZGEPositionY;
+    vec2 pos = p - vec2(centerX, centerY);
+    
+    // Diamond shape via Manhattan distance
+    float realSize = ZGESize * 0.5;
+    float dist = abs(pos.x) + abs(pos.y);
+    
+    // Smooth mask for the diamond
+    float edgeWidth = 2.0 / height; 
+    float mask = smoothstep(realSize, realSize - edgeWidth, dist);
+    
+    // Background source: iChannel0
+    vec3 background = texture2D(iChannel0, uv).rgb;
+    
+    // Diamond solid color
+    vec3 diamondColor = hsv2rgb(vec3(ZGEHue, ZGESaturation, ZGELightness));
+    
+    // Global transparency for the diamond shape
+    // 0.0 is opaque, 1.0 is transparent
+    float visibility = 1.0 - ZGEAlpha;
+    float diamondFinalMask = mask * visibility;
+    
+    // Composite: Background texture with the diamond shape on top
+    vec3 finalRGB = mix(background, diamondColor, diamondFinalMask);
+    
+    // Output full opacity for the final scene
+    fragColor = vec4(finalRGB, 1.0);
+}
+
+
+void main(){
+    //ZGE does not use mainImage( out vec4 fragColor, in vec2 fragCoord )
+    //Rededefined fragCoord as gl_FragCoord.xy-iViewport(dynamic window)
+    mainImage(gl_FragColor,gl_FragCoord.xy-iViewport);
+}]]>
+      </FragmentShaderSource>
+      <UniformVariables>
+        <ShaderVariable VariableName="iResolution" VariableRef="uResolution"/>
+        <ShaderVariable VariableName="iViewport" VariableRef="uViewport"/>
+        <ShaderVariable VariableName="iTime" VariableRef="uTime"/>
+<ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>
+        <ShaderVariable Name="ZGESize" VariableName="ZGESize" ValuePropRef="Parameters[0]"/>
+        <ShaderVariable Name="ZGEPositionX" VariableName="ZGEPositionX" ValuePropRef="Parameters[1]"/>
+        <ShaderVariable Name="ZGEPositionY" VariableName="ZGEPositionY" ValuePropRef="Parameters[2]"/>
+        <ShaderVariable Name="ZGEHue" VariableName="ZGEHue" ValuePropRef="Parameters[3]"/>
+        <ShaderVariable Name="ZGESaturation" VariableName="ZGESaturation" ValuePropRef="Parameters[4]"/>
+        <ShaderVariable Name="ZGELightness" VariableName="ZGELightness" ValuePropRef="Parameters[5]"/>
+        <ShaderVariable Name="ZGEAlpha" VariableName="ZGEAlpha" ValuePropRef="Parameters[6]"/>
+      </UniformVariables>
+    </Shader>
+    <Group Comment="Default ShaderToy Uniform Varible Inputs">
+      <Children>
+        <Variable Name="uResolution" Type="6"/>
+        <Variable Name="uTime"/>
+        <Variable Name="uTimeDelta"/>
+        <Variable Name="uFrame" Type="1"/>
+        <Variable Name="uFrameRate"/>
+        <Variable Name="uMouse" Type="8"/>
+        <Variable Name="uDate" Type="8"/>
+      </Children>
+    </Group>
+    <Group Comment="FL Studio Varibles">
+      <Children>
+        <Array Name="Parameters" SizeDim1="7" Persistent="255">
+          <Values>
+<![CDATA[789c636060b067406086b3677ce06c0028670321]]>
+          </Values>
+        </Array>
+        <Constant Name="ParamHelpConst" Type="2">
+          <StringValue>
+<![CDATA[Size @separator
+Position X
+Position Y
+Hue @separator
+Saturation
+Lightness
+Alpha
+]]>
+          </StringValue>
+        </Constant>
+        <Constant Name="AuthorInfo" Type="2" StringValue="NFX"/>
+      </Children>
+    </Group>
+    <Group Comment="Unique Uniform Varible Inputs">
+      <Children>
+        <Variable Name="uViewport" Type="6"/>
+      </Children>
+    </Group>
+    <Group Comment="Materials and Textures">
+      <Children>
+        <Material Name="mCanvas" Shader="MainShader">
+          
+      <Textures>
+        <MaterialTexture Name="FeedbackMaterialTexture" TexCoords="1" TextureSlot="0"/>
+      </Textures>
+    
+        </Material>
+      </Children>
+    </Group>
+    <Bitmap Name="Bitmap1" Width="128" Height="128">
+      <Producers>
+        <BitmapCells CellStyle="5"/>
+      </Producers>
+    </Bitmap>
+  </Content>
+</ZApplication>
