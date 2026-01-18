@@ -229,10 +229,12 @@ document.getElementById('convertButton').addEventListener('click', async functio
             // Check if the iChannel UI is visible (meaning iChannelN was detected in shader)
             if (iChannelRow && iChannelRow.style.display !== 'none') {
                 const selectedSource = document.getElementById(`ichannel${i}Source`).value;
+                tex = i + 1
+                const builtinName = `tex${tex}`;
                 const uniformName = `iChannel${i}`;
 
                 if (selectedSource !== "none") {
-                    iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\n`;
+                    iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
                     
                     let textureResourceName; // Name of the bitmap resource in ZGEP
                     switch (selectedSource) {
@@ -241,7 +243,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
                             // The template already contains <MaterialTexture Name="FeedbackMaterialTexture" ... />.
                             // We link the shader's iChannelN uniform to this existing "FeedbackMaterialTexture".
                             textureResourceName = "FeedbackMaterialTexture";
-                            materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${i}"/>\n`;
+                            materialTexturesXMLString += `        <MaterialTexture Name="${textureResourceName}" TexCoords="1" TextureSlot="${i}"/>\n`;
                             break;
                         case "bitmap1":
                             // This refers to a predefined "Bitmap1" in the template.
