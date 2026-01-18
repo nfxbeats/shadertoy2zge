@@ -6,11 +6,12 @@ const templateSelect = document.getElementById('templateSelect');
 async function populateTemplateSelector() {
     // Known templates (you can add new ones here manually)
     const knownTemplates = [
+        { value: 'templates/basic.zgeproj', text: 'Basic' },
         { value: 'templates/basic_120.zgeproj', text: 'Basic GLSL 120' },
         { value: 'templates/basic_130.zgeproj', text: 'Basic GLSL 130' }
     ];
 
-    // Add known templates first
+    // Add known templates
     knownTemplates.forEach(template => {
         const option = document.createElement('option');
         option.value = template.value;
@@ -18,47 +19,9 @@ async function populateTemplateSelector() {
         templateSelect.appendChild(option);
     });
 
-    // Try to discover additional templates by testing common patterns
-    const commonTemplateNames = [
-        'basic', 'template', 'default', 'simple', 'advanced', 'minimal'
-    ];
-    const glVersions = ['110', '120', '130', '140', '150', '330', '400', '410', '420', '430', '440', '450'];
-
-    for (const name of commonTemplateNames) {
-        for (const version of glVersions) {
-            const templatePath = `templates/${name}${version}.zgeproj`;
-            const underscoreTemplatePath = `templates/${name}_${version}.zgeproj`;
-
-            // Test if template exists by trying to fetch it (without actually loading the full content)
-            try {
-                const response = await fetch(templatePath, { method: 'HEAD' });
-                if (response.ok && !knownTemplates.some(t => t.value === templatePath)) {
-                    const option = document.createElement('option');
-                    option.value = templatePath;
-                    option.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} ${version}`;
-                    templateSelect.appendChild(option);
-                }
-            } catch (e) {
-                // Template doesn't exist, continue
-            }
-
-            try {
-                const response = await fetch(underscoreTemplatePath, { method: 'HEAD' });
-                if (response.ok && !knownTemplates.some(t => t.value === underscoreTemplatePath)) {
-                    const option = document.createElement('option');
-                    option.value = underscoreTemplatePath;
-                    option.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} ${version}`;
-                    templateSelect.appendChild(option);
-                }
-            } catch (e) {
-                // Template doesn't exist, continue
-            }
-        }
-    }
-
-    // Set default to basic_130.zgeproj if it exists
-    if (knownTemplates.some(t => t.value === 'templates/basic_130.zgeproj')) {
-        templateSelect.value = 'templates/basic_130.zgeproj';
+    // Set default to basic.zgeproj if it exists
+    if (knownTemplates.some(t => t.value === 'templates/basic.zgeproj')) {
+        templateSelect.value = 'templates/basic.zgeproj';
     }
 }
 

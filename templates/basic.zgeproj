@@ -1,19 +1,39 @@
 <?xml version="1.0" encoding="iso-8859-1" ?>
 <ZApplication Name="App" Caption="ZGameEditor application" FileVersion="2">
-  <OnLoaded>
-    <SpawnModel Model="Canvas"/>
-  </OnLoaded>
+  <OnUpdate>
+    <ZExpression>
+      <Expression>
+<![CDATA[//Optional: Move  to Constants to ZLibrary before release.
+float Speed=1.0;
+float delta=app.DeltaTime*Speed;
+uTime+=delta;
+
+//Most used ShaderToy uniform variables
+uResolution=vector2(app.ViewportWidth,app.ViewportHeight);
+uViewport=vector2(app.ViewportX,app.ViewportY);
+uMouse=vector4(0.0,0.0,0.0,0.0);]]>
+      </Expression>
+    </ZExpression>
+  </OnUpdate>
+  <OnRender>
+    <UseMaterial Material="mCanvas"/>
+    <RenderSprite/>
+  </OnRender>
   <Content>
     <Shader Name="MainShader">
       <VertexShaderSource>
-<![CDATA[void main(){
+<![CDATA[
+
+void main(){
   vec4 vertex = gl_Vertex;
   vertex.xy *= 2.0;
   gl_Position = vertex;
 }]]>
       </VertexShaderSource>
       <FragmentShaderSource>
-<![CDATA[uniform vec2 iResolution,iViewport;
+<![CDATA[
+
+uniform vec2 iResolution,iViewport;
 uniform float iTime;
 uniform vec4 iMouse;
 uniform sampler2D tex1;
@@ -42,10 +62,10 @@ void main(){
 }]]>
       </FragmentShaderSource>
       <UniformVariables>
-        <ShaderVariable VariableName="iResolution"/>
-        <ShaderVariable VariableName="iViewport"/>
-        <ShaderVariable VariableName="iTime"/>
-        <ShaderVariable VariableName="iMouse"/>
+        <ShaderVariable VariableName="iResolution" VariableRef="uResolution"/>
+        <ShaderVariable VariableName="iViewport" VariableRef="uViewport"/>
+        <ShaderVariable VariableName="iTime" VariableRef="uTime"/>
+        <ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>
       </UniformVariables>
     </Shader>
     <Group Comment="Default ShaderToy Uniform Varible Inputs">
@@ -63,10 +83,15 @@ void main(){
       <Children>
         <Array Name="Parameters" SizeDim1="1" Persistent="255">
           <Values>
-<![CDATA[789C63606060000000040001]]>
+<![CDATA[789C]]>
           </Values>
         </Array>
-        <Constant Name="ParamHelpConst" Type="2" StringValue="Alpha"/>
+        <Constant Name="ParamHelpConst" Type="2">
+          <StringValue>
+<![CDATA[Alpha
+]]>
+          </StringValue>
+        </Constant>
         <Constant Name="AuthorInfo" Type="2"/>
       </Children>
     </Group>
@@ -75,33 +100,16 @@ void main(){
         <Variable Name="uViewport" Type="6"/>
       </Children>
     </Group>
-    <Material Name="CanvasMaterial" Light="0" ZBuffer="0" Shader="MainShader">
-      <Textures>
-        <MaterialTexture Name="FeedbackMaterialTexture" TexCoords="1"/>
-        <MaterialTexture Name="Source1" Texture="Bitmap1"/>
-      </Textures>
-    </Material>
-    <Model Name="Canvas">
-      <OnUpdate>
-        <ZExpression>
-          <Expression>
-<![CDATA[//Optional: Move  to Constants to ZLibrary before release.
-float Speed=1.0;
-float delta=app.DeltaTime*Speed;
-uTime+=delta;
-
-//Most used ShaderToy uniform variables
-uResolution=vector2(app.ViewportWidth,app.ViewportHeight);
-uViewport=vector2(app.ViewportX,app.ViewportY);
-uMouse=vector4(0.0,0.0,0.0,0.0);]]>
-          </Expression>
-        </ZExpression>
-      </OnUpdate>
-      <OnRender>
-        <UseMaterial Material="CanvasMaterial"/>
-        <RenderSprite/>
-      </OnRender>
-    </Model>
+    <Group Comment="Materials and Textures">
+      <Children>
+        <Material Name="mCanvas" Shader="MainShader">
+          <Textures>
+            <MaterialTexture Name="FeedbackMaterialTexture" TexCoords="1"/>
+            <MaterialTexture Name="Source1" Texture="Bitmap1"/>
+          </Textures>
+        </Material>
+      </Children>
+    </Group>
     <Bitmap Name="Bitmap1" Width="128" Height="128">
       <Producers>
         <BitmapCells CellStyle="5"/>
