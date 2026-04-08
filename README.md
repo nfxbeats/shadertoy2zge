@@ -26,7 +26,7 @@ Example usage:
 // ZGEdelta
 ```
 - Extracts any float variable declarations prefixed with ZGE (ex: ZGEtimeFactor, ZGEratio), adds them as uniforms and creates respective parameters to adjust their values.
-- **NEW:** Extracts bool variable declarations prefixed with ZGE (ex: ZGEEnableEffect, ZGEInvert), adds them as float uniforms (0.0/1.0) and creates checkbox controls in ZGE.
+- Extracts bool variable declarations prefixed with ZGE (ex: ZGEEnableEffect, ZGEInvert), adds them as float uniforms (0.0/1.0) and creates checkbox controls in ZGE.
 - If keyword **ZGEdelta** is included in any comments, a Speed slider will be added that will adjust deltaTime so as to speed up or reverse time for graphic processing.
 - Provides a download link of the resulting project via data uri.
 
@@ -80,9 +80,57 @@ For example:
 ```
 float ZGEimgSrcMix = 0.0;
 float ZGEGamma = 1.0; // Range: 0.0, 3.0 @separator
+float ZGEShape = 0.0; // @list: "Triangle", "Square", "Circle" @separator
 ```
 
-The @separator tag is added to the variable declaration so that ZGE adds a separator prior to the ZGEGamma variable. Boolean parameters automatically receive the `@checkbox` tag.
+The `@separator` tag is added to the variable declaration so that ZGE adds a separator prior to the parameter. Boolean parameters automatically receive the `@checkbox` tag.
+
+The converter also supports `@list` with quote-enclosed, comma-separated values:
+
+```glsl
+float ZGEShape = 0.0; // @list: "Triangle", "Square", "Circle"
+```
+
+When `@list` is used:
+- It must always come before `@separator`
+- the parameter remains a `float` uniform in GLSL,
+- list labels are written to ParamHelp metadata as `@list: "..."`,
+- and values remain normalized (`0..1`) 
+
+For the example above, the three item shader-side values are interpreted as:
+- `0.0` = Triangle
+- `0.333...` = Square
+- `0.666...` = Circle
+
+To avoid rounding issues, I recommend you convert the float value to a discrete integer index value in your glsl comparisons. 
+
+From the example definition above, I would use helper function like this:
+
+```
+// Convert normalized list value [0..1] to stable index [0..N-1]
+int listIndex(float value, int itemCount) {
+    // Guard for invalid counts
+    if (itemCount <= 1) return 0;
+    // Quantize normalized value into discrete bin
+    int idx = int(floor(value * float(itemCount) + 0.5));
+    // Clamp to legal range
+    return clamp(idx, 0, itemCount - 1);
+}
+
+// example use of helper function 
+int shapeIndex = listIndex(ZGEShape, 3);
+
+if (shapeIndex == 0) {
+    // Triangle
+} else if (shapeIndex == 1) {
+    // Square
+} else {
+    // Circle (index 2)
+}
+```
+
+In the code repository, see `test_params.glsl` for a working example.
+
 
 ## Examples
 

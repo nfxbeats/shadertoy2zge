@@ -148,6 +148,40 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
     // Note: NOT using /g flag since we process one line at a time
     const zgeVarRegex = /(float|bool) ZGE(\w+)\s*=\s*([^;]+);(?:\s*\/\/\s*Range:\s*(-?[0-9]+\.?[0-9]*),\s*(-?[0-9]+\.?[0-9]*))?(?:.*?\s*@(.+))?/;
+
+    function parseZGETags(tagsRaw) {
+        const parsed = {
+            plainTags: [],
+            listItems: undefined,
+        };
+
+        if (!tagsRaw) {
+            return parsed;
+        }
+
+        let remaining = tagsRaw.trim();
+
+        // Supports: @list: "Triangle", "Square", "Circle"
+        const listPattern = /(?:^|\s)list:\s*((?:"[^"]*"\s*(?:,\s*"[^"]*"\s*)*))/i;
+        const listMatch = remaining.match(listPattern);
+        if (listMatch) {
+            const quotedItems = Array.from(listMatch[1].matchAll(/"([^"]*)"/g)).map((m) => m[1]);
+            if (quotedItems.length > 0) {
+                parsed.listItems = quotedItems;
+            }
+
+            const listMatchStart = listMatch.index ?? 0;
+            remaining = (remaining.substring(0, listMatchStart) + ' ' + remaining.substring(listMatchStart + listMatch[0].length)).trim();
+        }
+
+        parsed.plainTags = remaining
+            .split(/\s+/)
+            .map(tag => tag.replace(/^@+/, '').trim())
+            .filter(tag => tag.length > 0);
+
+        return parsed;
+    }
+
     let lineMatches;
 
     lines.forEach(function(line) {
@@ -160,14 +194,15 @@ document.getElementById('convertButton').addEventListener('click', async functio
             const varValue = lineMatches[3].trim();
             const rangeFrom = lineMatches[4] ? lineMatches[4].trim() : undefined;
             const rangeTo = lineMatches[5] ? lineMatches[5].trim() : undefined;
-            let tags = lineMatches[6] ? lineMatches[6].trim() : undefined;
+            const tagsRaw = lineMatches[6] ? lineMatches[6].trim() : undefined;
+            const parsedTags = parseZGETags(tagsRaw);
             
             // Booleans are stored as floats in ZGE (0.0 or 1.0)
             zgeUniformDeclarationsString += `uniform float ZGE${varId};\n`;
             
             // Auto-add @checkbox tag for bool types if not already present
-            if (varType === 'bool' && (!tags || !tags.includes('checkbox'))) {
-                tags = tags ? `${tags} checkbox` : 'checkbox';
+            if (varType === 'bool' && !parsedTags.plainTags.includes('checkbox')) {
+                parsedTags.plainTags.push('checkbox');
             }
             
             ZGEvars.push({
@@ -176,7 +211,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
                 value: varValue,
                 rangeFrom: rangeFrom,
                 rangeTo: rangeTo,
-                tags: tags,
+                tagsRaw: tagsRaw,
+                tags: parsedTags.plainTags,
+                listItems: parsedTags.listItems,
             });
             lineIsZGEVar = true; // This line is a ZGE var, so don't add to userShaderBody
         }
@@ -460,7 +497,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             } else if (param.rangeFrom && param.rangeTo) {
                 const min = parseFloat(param.rangeFrom);
                 const max = parseFloat(param.rangeTo);
-                if (min === 0.0 && max === 1.0) {
+                if (isNaN(min) || isNaN(max) || (min === 0.0 && max === 1.0)) {
                     shaderVarsXMLString += paramControlRef;
                 } else {
                     shaderVarsXMLString += `(((${paramControlRef} - 0.0) * (${max} - ${min})) / (1.0 - 0.0)) + ${min}`;
@@ -558,7 +595,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
                         scaledValue = Math.max(0.0, Math.min(1.0, scaledValue));
                     }
                 }
-            } else { // No range defined, default target range is 0.0 to 1.0 for ZGEP
+            } else { // No range/list defined, default target range is 0.0 to 1.0 for ZGEP
                 if (originalValueFloat < 0.0 || originalValueFloat > 1.0) {
                     scaledValue = Math.max(0.0, Math.min(1.0, originalValueFloat));
                     displayNotification(`Warning: Parameter ZGE${param.id} (value: ${originalValueFloat.toFixed(3)}) was clamped to ${scaledValue.toFixed(1)} as no custom range was set (defaulting to 0-1 for ZGEP).`, 'warning');
@@ -590,10 +627,12 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         ZGEvars.forEach(function(param) {
             let tagsString = "";
-            if (param.tags) {
-                // Split tags by space and prefix each with @
-                const tagArray = param.tags.split(/\s+/);
-                tagsString = ' ' + tagArray.map(tag => '@' + tag).join(' ');
+            if (param.listItems && param.listItems.length > 0) {
+                const listItemsLiteral = param.listItems.map(item => `"${item}"`).join(', ');
+                tagsString += ` @list: ${listItemsLiteral}`;
+            }
+            if (param.tags && param.tags.length > 0) {
+                tagsString += ' ' + param.tags.map(tag => '@' + tag).join(' ');
             }
             paramNamesCDATA += formatParamNameForDisplay(param.id) + tagsString + '\n';
         });
