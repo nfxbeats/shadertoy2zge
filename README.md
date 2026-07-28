@@ -33,13 +33,16 @@ Example usage:
 ## A note about iChannel Sources
 ShaderToy allows for up to 4 textures to be used. These textures are called iChannel0, iChannel1, iChannel2, and iChannel3. 
 
-Currently with this converter only supports 2 textures to be used in the shader. 
-
 - Feedback: This is the scene that the shader is layered above. You ShaderToy code should use this as a background layer.
 - Image Src: This is the image source drop down on the ZGE layer properties.
+- Audio Spectrum (FFT): Binds FL Studio's host-populated `SpecBandArray` directly to the selected `iChannel` as a shader texture. Shadertoy spectrum reads such as `texture(iChannel2, vec2(frequency, 0.0)).x` work without an intermediate bitmap. This source supplies the FFT spectrum row only; Shadertoy's waveform data row is not provided. See [AUDIO.md](AUDIO.md) for details on how to make audio reactive compatible shaders
 
-You can defined any valid iChannel for either purpose using the iChannel Source dropdown. A shader that demonstrates this can be seen here:
+You can define any valid iChannel source using the iChannel Source dropdown. A shader that demonstrates texture inputs can be seen here:
 https://www.shadertoy.com/view/WXtcDf 
+
+Audio Reactive Demo:
+https://www.shadertoy.com/view/NfVGD1
+
 
 ## Extraction of float and bool variables
 
@@ -139,3 +142,4 @@ The following are examples from Shadertoy that have been successfully converted 
 - Lacquer: https://www.shadertoy.com/view/M3jGDR
 - Film Scratches: https://www.shadertoy.com/view/X3sGWl
 - Displace Ooze: https://www.shadertoy.com/view/MXB3zK
+- LED Array (audio): https://www.shadertoy.com/view/NfVGD1

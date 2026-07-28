@@ -7,7 +7,8 @@ function createIChannelDropdowns() {
     const channelOptions = [
         { value: 'none', text: 'None' },
         { value: 'feedback', text: 'Feedback' },
-        { value: 'bitmap1', text: 'Image Src' }
+        { value: 'bitmap1', text: 'Image Src' },
+        { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' }
         // { value: 'bitmap2_new', text: 'Source2 (Nova Textura)' },
         // { value: 'bitmap3_new', text: 'Source3 (Nova Textura)' },
         // { value: 'bitmap4_new', text: 'Source4 (Nova Textura)' }
@@ -267,6 +268,8 @@ document.getElementById('convertButton').addEventListener('click', async functio
         let iChannelUniformsDeclaration = ""; // For shader code
         let materialTexturesXMLString = "";   // For ZGEP <Textures>
         let newBitmapsXMLString = "";         // For ZGEP <Content> if new bitmaps are needed
+        let audioShaderVariablesXMLString = ""; // Binds FL Studio's spectrum array as sampler2D uniforms
+        let usesAudioSpectrum = false;
         const definedBitmapResources = new Set(); // Track new bitmaps to avoid duplicates
 
         // FIRST PASS: Collect all active iChannels and their configurations
@@ -305,7 +308,15 @@ document.getElementById('convertButton').addEventListener('click', async functio
             const uniformName = `iChannel${newSlotIndex}`;
             const selectedSource = channel.selectedSource;
 
-            iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
+            if (selectedSource === "audio_spectrum") {
+                // ValueArrayRef exposes a ZGE Array to GLSL as a 2D texture. Keep the
+                // Shadertoy uniform name so it does not consume a Material texture slot.
+                iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\n`;
+                audioShaderVariablesXMLString += `        <ShaderVariable VariableName="${uniformName}" ValueArrayRef="SpecBandArray"/>\n`;
+                usesAudioSpectrum = true;
+            } else {
+                iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
+            }
             
             let textureResourceName; // Name of the bitmap resource in ZGEP
             switch (selectedSource) {
@@ -332,6 +343,10 @@ document.getElementById('convertButton').addEventListener('click', async functio
                         newBitmapsXMLString += `    <Bitmap Name="${textureResourceName}" Width="256" Height="256"><Producers><BitmapCells CellStyle="5"/></Producers></Bitmap>\n`;
                         definedBitmapResources.add(textureResourceName);
                     }
+                    break;
+                case "audio_spectrum":
+                    // SpecBandArray is bound through Shader.UniformVariables rather
+                    // than Material.Textures, so no MaterialTexture is required.
                     break;
             }
         });
@@ -457,6 +472,16 @@ document.getElementById('convertButton').addEventListener('click', async functio
             templateXMLText = templateXMLText.substring(0, contentEndIndex) + newBitmapsXMLString + templateXMLText.substring(contentEndIndex);
         }
 
+        // FL Studio fills arrays with this exact name with its current FFT bins.
+        // The array size is assigned by the host at runtime.
+        if (usesAudioSpectrum && !templateXMLText.includes('<Array Name="SpecBandArray"')) {
+            const parametersArrayMarker = '        <Array Name="Parameters"';
+            templateXMLText = templateXMLText.replace(
+                parametersArrayMarker,
+                '        <Array Name="SpecBandArray"/>\n' + parametersArrayMarker
+            );
+        }
+
         // 5d. Modify the shader tag to include comment if present
         if (comment) {
             const shaderTagPattern = '<Shader Name="MainShader">';
@@ -485,7 +510,8 @@ document.getElementById('convertButton').addEventListener('click', async functio
         templateXMLText = templateXMLText.replace(paramsSizeDimRegex, paramsSizeDimNew);
         
         // 5g. Generate and insert ShaderVariable XML for ZGE custom parameters
-        let shaderVarsXMLString = '<ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>\n'; // Start with iMouse
+        let shaderVarsXMLString = '<ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>\n';
+        shaderVarsXMLString += audioShaderVariablesXMLString;
         ZGEvars.forEach(function(param, index) {
             let paramIndexInArray = index + (zgedelta ? 1 : 0);
             let paramControlRef = `Parameters[${paramIndexInArray}]`;
