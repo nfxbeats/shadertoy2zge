@@ -1,16 +1,41 @@
-Shadertoy to ZGameEditor converter. The goal of this web app is an easy, one-shot conversion of Shadertoy shaders to ZGameEditor project files. Just paste in your Shadertoy code and it should spit out a fully functional .zgeproj file.
+# Shadertoy to ZGameEditor converter. 
+The goal of this web app is an easy, one-shot conversion of Shadertoy shaders to ZGameEditor project files. Just paste in your Shadertoy code and it should spit out a fully functional .zgeproj file.
 
 For those unaware, [ZGameEditor](https://www.zgameeditor.org/) is an open-source game engine. And it's also been fully integrated as an [FL Studio plugin](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/ZGameEditor%20Visualizer.htm), a very powerful composer for audio visualization.
 
 ZGameEditor provides a built-in language for creating games, visualizations and more. But it also supports GLSL shaders and can handle a lot of Shadertoy code out-of-the-box. This converter aims to greatly simplify porting of shaders.
 
+There is an [Online Converter](https://nfxbeats.github.io/shadertoy2zge/) that is usable right now without the need to copy this repository code for immediate conversions.
+
 ## What it does currently
 - Adds user provided Shadertoy code into the appropriate spot in a template.
 - Ensures texture calls are replaced with ZGE's texture2D.
-- Enables access to the current video texture.
+- Enables access to the current Feedback video texture.
 - Enables access to Image Src drop-down texture.
-## Comment-Based Data Extraction
+- Enables access to audio spectrum FFT data for audio reactive shaders
 
+## How to use
+- Find a usable shadertoy shader such as this [LED Spectrum](https://www.shadertoy.com/view/NfVGD1).
+- Copy the shadertoy code into the [online converter](https://nfxbeats.github.io/shadertoy2zge/)
+- Set the appropriate GLSL version and iChannel sources
+- Click Convert to convert the code
+- Click Download ZGE Project to download the .zgeproj file.
+- Place the .zgeproj file into a folder for ZGE effects 
+
+Example Screenshot:
+
+![Example usage](/converter-example.png)
+
+### Finding your ZGE Folder
+To use these ZGE Effects, you must copy them into the folder "**User Data Folder**\ZGameEditor Visualizer\Effects".
+
+NOTE: The **"User Data Folder"** may differ depending on OS, username and custom settings.
+
+You can find your User Data Folder in FL Studio under Options->File Settings. Look for the section labelled **"User Data Folder"**
+
+For example my User Data Folder is "D:\ImageLineData" so my location would be "D:\ImageLineData\ZGameEditor Visualizer\Effects"
+
+## Comment-Based Data Extraction
 The converter extracts metadata from special comment lines in your shader code:
 
 - **`// Title: [name]`** - Sets the project title (used in download filename)
@@ -33,7 +58,8 @@ Example usage:
 ## A note about iChannel Sources
 ShaderToy allows for up to 4 textures to be used. These textures are called iChannel0, iChannel1, iChannel2, and iChannel3. 
 
-- Feedback: This is the scene that the shader is layered above. You ShaderToy code should use this as a background layer.
+FL Studio definitions:
+- Feedback: This is the scene that the ZGE shader is layered above. You ShaderToy code should use this as a background layer.
 - Image Src: This is the image source drop down on the ZGE layer properties.
 - Audio Spectrum (FFT): Binds FL Studio's host-populated `SpecBandArray` directly to the selected `iChannel` as a shader texture. Shadertoy spectrum reads such as `texture(iChannel2, vec2(frequency, 0.0)).x` work without an intermediate bitmap. This source supplies the FFT spectrum row only; Shadertoy's waveform data row is not provided. See [AUDIO.md](AUDIO.md) for details on how to make audio reactive compatible shaders
 
