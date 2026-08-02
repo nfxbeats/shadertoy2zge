@@ -6,6 +6,7 @@ const templateSelect = document.getElementById('templateSelect');
 function createIChannelDropdowns() {
     const channelOptions = [
         { value: 'none', text: 'None' },
+        { value: 'internal', text: 'Internal' },
         { value: 'feedback', text: 'Feedback' },
         { value: 'bitmap1', text: 'Image Src' },
         { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' }
@@ -13,6 +14,7 @@ function createIChannelDropdowns() {
         // { value: 'bitmap3_new', text: 'Source3 (Nova Textura)' },
         // { value: 'bitmap4_new', text: 'Source4 (Nova Textura)' }
     ];
+    const internalTextureSizes = [256, 512, 1024];
 
     for (let i = 0; i < 4; i++) {
         // Create row div
@@ -40,6 +42,33 @@ function createIChannelDropdowns() {
         });
 
         rowDiv.appendChild(select);
+
+        // Internal textures can be generated at one of several square sizes.
+        const sizeContainer = document.createElement('span');
+        sizeContainer.id = `ichannel${i}SizeContainer`;
+        sizeContainer.style.display = 'none';
+        sizeContainer.style.marginLeft = '10px';
+
+        const sizeLabel = document.createElement('label');
+        sizeLabel.htmlFor = `ichannel${i}Size`;
+        sizeLabel.textContent = ' Size: ';
+        sizeContainer.appendChild(sizeLabel);
+
+        const sizeSelect = document.createElement('select');
+        sizeSelect.id = `ichannel${i}Size`;
+        internalTextureSizes.forEach(size => {
+            const optionElement = document.createElement('option');
+            optionElement.value = size;
+            optionElement.textContent = size;
+            sizeSelect.appendChild(optionElement);
+        });
+        sizeContainer.appendChild(sizeSelect);
+        rowDiv.appendChild(sizeContainer);
+
+        select.addEventListener('change', () => {
+            sizeContainer.style.display = select.value === 'internal' ? 'inline' : 'none';
+        });
+
         iChannelConfigDiv.appendChild(rowDiv);
     }
 }
@@ -282,7 +311,10 @@ document.getElementById('convertButton').addEventListener('click', async functio
                 if (selectedSource !== "none") {
                     activeChannels.push({
                         originalIndex: i,
-                        selectedSource: selectedSource
+                        selectedSource: selectedSource,
+                        internalSize: selectedSource === "internal"
+                            ? parseInt(document.getElementById(`ichannel${i}Size`).value, 10)
+                            : null
                     });
                 }
             }
@@ -295,17 +327,13 @@ document.getElementById('convertButton').addEventListener('click', async functio
             return a.originalIndex - b.originalIndex; // Maintain original order for non-feedback
         });
 
-        // Create a mapping from original indices to new indices
-        const channelMapping = {}; // e.g., {3: 0, 1: 1} means iChannel3 -> iChannel0, iChannel1 -> iChannel1
-        activeChannels.forEach((channel, newIndex) => {
-            channelMapping[channel.originalIndex] = newIndex;
-        });
-
         // SECOND PASS: Assign to slots sequentially and generate declarations
         activeChannels.forEach((channel, newSlotIndex) => {
             const tex = newSlotIndex + 1;
             const builtinName = `tex${tex}`;
-            const uniformName = `iChannel${newSlotIndex}`;
+            // Keep the shader-facing channel name stable even when ZGE texture
+            // slots are compacted or reordered (for example, iChannel3 -> tex1).
+            const uniformName = `iChannel${channel.originalIndex}`;
             const selectedSource = channel.selectedSource;
 
             if (selectedSource === "audio_spectrum") {
@@ -320,6 +348,18 @@ document.getElementById('convertButton').addEventListener('click', async functio
             
             let textureResourceName; // Name of the bitmap resource in ZGEP
             switch (selectedSource) {
+                case "internal":
+                    // Create a concrete ZGE texture for the channel. Name the
+                    // bitmap after the original iChannel uniform, and give the
+                    // material binding a distinct name as required by ZGE.
+                    textureResourceName = uniformName;
+                    materialTexturesXMLString += `        <MaterialTexture Name="${uniformName}Internal" Texture="${textureResourceName}" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
+                    if (!definedBitmapResources.has(textureResourceName)) {
+                        const internalSize = [256, 512, 1024].includes(channel.internalSize) ? channel.internalSize : 256;
+                        newBitmapsXMLString += `    <Bitmap Name="${textureResourceName}" Width="${internalSize}" Height="${internalSize}"><Producers><BitmapCells CellStyle="5"/></Producers></Bitmap>\n`;
+                        definedBitmapResources.add(textureResourceName);
+                    }
+                    break;
                 case "feedback":
                     // This refers to ZGE's built-in feedback mechanism.
                     // The template already contains <MaterialTexture Name="FeedbackMaterialTexture" ... />.
@@ -351,34 +391,6 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
         });
 
-        // UPDATE SHADER CODE: Replace old channel references with new ones
-        // Iterate in reverse order of original indices to avoid replacing substrings incorrectly
-        // e.g., replace iChannel3 before iChannel0 to avoid "iChannel0" matching in "iChannel03"
-        Object.keys(channelMapping)
-            .map(k => parseInt(k))
-            .sort((a, b) => b - a) // Sort descending
-            .forEach(originalIndex => {
-                const newIndex = channelMapping[originalIndex];
-                if (originalIndex !== newIndex) {
-                    // Replace all occurrences of iChannelX with a temporary placeholder
-                    const placeholder = `__TEMP_CHANNEL_${originalIndex}__`;
-                    const originalPattern = new RegExp(`\\biChannel${originalIndex}\\b`, 'g');
-                    userShaderBody = userShaderBody.replace(originalPattern, placeholder);
-                }
-            });
-
-        // Now replace all placeholders with the new indices
-        Object.keys(channelMapping)
-            .map(k => parseInt(k))
-            .forEach(originalIndex => {
-                const newIndex = channelMapping[originalIndex];
-                if (originalIndex !== newIndex) {
-                    const placeholder = `__TEMP_CHANNEL_${originalIndex}__`;
-                    const placeholderPattern = new RegExp(placeholder, 'g');
-                    userShaderBody = userShaderBody.replace(placeholderPattern, `iChannel${newIndex}`);
-                }
-            });
-
         // 4. Prepare the final shader code for injection
         // Remove any hardcoded Shadertoy iChannel defines or old tex1/tex2 uniforms from user's shader body,
         // as these are now handled dynamically.
@@ -386,6 +398,17 @@ document.getElementById('convertButton').addEventListener('click', async functio
         userShaderBody = userShaderBody.replace(/uniform sampler2D tex2;\s*\n?/g, '');
         userShaderBody = userShaderBody.replace(/#define iChannel0 tex1\s*\n?/g, '');
         userShaderBody = userShaderBody.replace(/#define iChannel1 tex2\s*\n?/g, '');
+
+        // Shadertoy exports may include their own iChannel sampler declarations.
+        // Remove declarations for channels managed above so each sampler is
+        // declared exactly once in the generated shader.
+        activeChannels.forEach(channel => {
+            const channelUniformPattern = new RegExp(
+                `uniform\\s+(?:(?:lowp|mediump|highp)\\s+)?sampler2D\\s+iChannel${channel.originalIndex}\\s*;\\s*\\n?`,
+                'g'
+            );
+            userShaderBody = userShaderBody.replace(channelUniformPattern, '');
+        });
         
         // Convert boolean-style conditionals to float comparisons for ZGE compatibility
         // This allows Shadertoy-style "if (ZGEBoolVar)" to work as "if (ZGEBoolVar > 0.5)"

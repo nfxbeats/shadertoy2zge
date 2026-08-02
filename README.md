@@ -59,6 +59,8 @@ Example usage:
 ShaderToy allows for up to 4 textures to be used. These textures are called iChannel0, iChannel1, iChannel2, and iChannel3. 
 
 FL Studio definitions:
+- None: Ignores the channel and does not create a texture or shader binding.
+- Internal: Creates a square ZGE bitmap named after the original `iChannel` and a distinctly named material texture with an `Internal` suffix (for example, `iChannel3Internal`). Its size can be set to 256x256, 512x512, or 1024x1024. The shader remains wired to that texture, which can be edited or replaced in ZGameEditor.
 - Feedback: This is the scene that the ZGE shader is layered above. You ShaderToy code should use this as a background layer.
 - Image Src: This is the image source drop down on the ZGE layer properties.
 - Audio Spectrum (FFT): Binds FL Studio's host-populated `SpecBandArray` directly to the selected `iChannel` as a shader texture. Shadertoy spectrum reads such as `texture(iChannel2, vec2(frequency, 0.0)).x` work without an intermediate bitmap. This source supplies the FFT spectrum row only; Shadertoy's waveform data row is not provided. See [AUDIO.md](AUDIO.md) for details on how to make audio reactive compatible shaders
