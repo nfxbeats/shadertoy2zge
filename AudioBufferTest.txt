@@ -1,0 +1,459 @@
+// Title: Audio Buffer Test
+// Author: NFX
+// Comment: Linear banded AudioBuffer test with peak hold and audio trails.
+
+float ZGESize = 0.5;
+float ZGEPositionX = 0.5;
+float ZGEPositionY = 0.5;
+
+float ZGEAudioPower = 0.5; // Audio settings @separator
+float ZGEAttack = 0.5;
+float ZGEDecay = 0.5;
+float ZGEBands = 0.056;    // 3–128 bands, default 10
+float ZGEAudioScale = 0.5;
+float ZGEPeakDecay = 0.25; // Peak hold fall time, default 250 ms
+float ZGETrailDecay = 0.5; // Trail decay time
+
+bool ZGEPeakHold = false;
+bool ZGETrails = false;
+
+// AudioBuffer modes:
+// 0 = RAW / NONE
+// 1 = ATTACK_DECAY
+// 2 = PEAK_DECAY
+// 3 = FOLLOW
+const int AudioBuffer1Mode = 1;
+const int AudioBuffer1Source = 0;
+
+const int AudioBuffer2Mode = 2;
+const int AudioBuffer2Source = 1;
+
+const int AudioBuffer3Mode = 3;
+const int AudioBuffer3Source = 1;
+
+const int AudioBuffer4Mode = 3;
+const int AudioBuffer4Source = 3;
+
+float AudioFFT(float freq)
+{
+    return texture(
+        iChannel2,
+        vec2(clamp(freq, 0.0, 1.0), 0.0)
+    ).r;
+}
+
+// AudioBuffer1: main attack/decay bars
+float AudioBuffer1(float freq)
+{
+    float attack = clamp(ZGEAttack, 0.0, 1.0);
+    float decay = clamp(ZGEDecay, 0.0, 1.0);
+
+    float mode = float(AudioBuffer1Mode);
+    float source = float(AudioBuffer1Source);
+
+    float v = AudioFFT(freq);
+
+    // No-op bindings for converter linkage.
+    v *= (1.0 + 0.0 * attack);
+    v *= (1.0 + 0.0 * decay);
+    v *= (1.0 + 0.0 * mode);
+    v *= (1.0 + 0.0 * source);
+
+    return v;
+}
+
+// AudioBuffer2: peak hold marker (uses ZGEPeakDecay)
+float AudioBuffer2(float freq)
+{
+    float peakDecay = clamp(ZGEPeakDecay, 0.0, 1.0);
+
+    float mode = float(AudioBuffer2Mode);
+    float source = float(AudioBuffer2Source);
+
+    float v = AudioFFT(freq);
+
+    // No-op bindings for converter linkage.
+    v *= (1.0 + 0.0 * peakDecay);
+    v *= (1.0 + 0.0 * mode);
+    v *= (1.0 + 0.0 * source);
+
+    return v;
+}
+
+// AudioBuffer3: newer trail (uses ZGETrailDecay)
+float AudioBuffer3(float freq)
+{
+    float trailDecay = clamp(ZGETrailDecay, 0.0, 1.0);
+
+    float mode = float(AudioBuffer3Mode);
+    float source = float(AudioBuffer3Source);
+
+    float v = AudioFFT(freq);
+
+    // No-op bindings for converter linkage.
+    v *= (1.0 + 0.0 * trailDecay);
+    v *= (1.0 + 0.0 * mode);
+    v *= (1.0 + 0.0 * source);
+
+    return v;
+}
+
+// AudioBuffer4: older trail (uses ZGETrailDecay)
+float AudioBuffer4(float freq)
+{
+    float trailDecay = clamp(ZGETrailDecay, 0.0, 1.0);
+
+    float mode = float(AudioBuffer4Mode);
+    float source = float(AudioBuffer4Source);
+
+    float v = AudioFFT(freq);
+
+    // No-op bindings for converter linkage.
+    v *= (1.0 + 0.0 * trailDecay);
+    v *= (1.0 + 0.0 * mode);
+    v *= (1.0 + 0.0 * source);
+
+    return v;
+}
+
+float audioSample(
+    float freq,
+    int source)
+{
+    if (source == 1)
+        return AudioBuffer1(freq);
+
+    if (source == 2)
+        return AudioBuffer2(freq);
+
+    if (source == 3)
+        return AudioBuffer3(freq);
+
+    if (source == 4)
+        return AudioBuffer4(freq);
+
+    return AudioFFT(freq);
+}
+
+float fftAvg(
+    float a,
+    float b,
+    int source)
+{
+    const int S = 8;
+
+    float e = 0.0;
+
+    for (int i = 0; i < S; i++)
+    {
+        float t =
+            (float(i) + 0.5) /
+            float(S);
+
+        float f =
+            mix(a, b, t);
+
+        e += audioSample(f, source);
+    }
+
+    return e / float(S);
+}
+
+float freqMap(
+    float u,
+    float distributionCtrl,
+    float lowCutCtrl)
+{
+    float uu =
+        clamp(u, 0.0, 1.0);
+
+    float exponent =
+        mix(
+            2.2,
+            0.45,
+            distributionCtrl
+        );
+
+    float shaped =
+        pow(uu, exponent);
+
+    float lowCut =
+        mix(
+            0.0,
+            0.75,
+            lowCutCtrl
+        );
+
+    return mix(
+        lowCut,
+        1.0,
+        shaped
+    );
+}
+
+float bandEnvFromFreqIndex(
+    int freqIdx,
+    int bandCount,
+    float powerCtrl,
+    float distributionCtrl,
+    float lowCutCtrl,
+    int source)
+{
+    float u0 =
+        float(freqIdx) /
+        float(bandCount);
+
+    float u1 =
+        float(freqIdx + 1) /
+        float(bandCount);
+
+    float f0 =
+        freqMap(
+            u0,
+            distributionCtrl,
+            lowCutCtrl
+        );
+
+    float f1 =
+        freqMap(
+            u1,
+            distributionCtrl,
+            lowCutCtrl
+        );
+
+    float raw =
+        fftAvg(
+            f0,
+            f1,
+            source
+        );
+
+    return clamp(
+        raw * powerCtrl,
+        0.0,
+        1.0
+    );
+}
+
+void mainImage(
+    out vec4 fragColor,
+    in vec2 fragCoord)
+{
+    vec2 uv =
+        fragCoord.xy /
+        iResolution.xy;
+
+    float sizeCtrl =
+        clamp(ZGESize, 0.0, 1.0);
+
+    float globalScale =
+        sizeCtrl * 2.0;
+
+    vec2 posC =
+        clamp(
+            vec2(ZGEPositionX, ZGEPositionY),
+            0.0,
+            1.0
+        );
+
+    vec2 p =
+        (uv - posC) /
+        max(globalScale, 0.001) +
+        0.5;
+
+    float bandsCtrl =
+        clamp(ZGEBands, 0.0, 1.0);
+
+    int bandCount =
+        clamp(
+            int(floor(
+                mix(3.0, 128.0, bandsCtrl) +
+                0.5
+            )),
+            3,
+            128
+        );
+
+    float powerCtrl =
+        clamp(ZGEAudioPower, 0.0, 1.0);
+
+    float audioScaleCtrl =
+        clamp(ZGEAudioScale, 0.0, 1.0);
+
+    float peakOn =
+        ZGEPeakHold ? 1.0 : 0.0;
+
+    float trailsOn =
+        ZGETrails ? 1.0 : 0.0;
+
+    const float marginX = 0.04;
+    const float marginY = 0.06;
+
+    float usableWidth =
+        1.0 - 2.0 * marginX;
+
+    float usableHeight =
+        1.0 - 2.0 * marginY;
+
+    float barWidth =
+        usableWidth / float(bandCount);
+
+    float gap =
+        barWidth * 0.15;
+
+    vec3 col =
+        vec3(0.02, 0.03, 0.05);
+
+    if (
+        p.x >= marginX &&
+        p.x <= 1.0 - marginX &&
+        p.y >= marginY &&
+        p.y <= 1.0 - marginY)
+    {
+        float localX =
+            p.x - marginX;
+
+        int barIdx =
+            int(floor(
+                localX / barWidth
+            ));
+
+        if (
+            barIdx >= 0 &&
+            barIdx < bandCount)
+        {
+            float x0 =
+                marginX +
+                float(barIdx) * barWidth;
+
+            float left =
+                x0 + gap * 0.5;
+
+            float right =
+                x0 + barWidth - gap * 0.5;
+
+            float maxBarHeight =
+                usableHeight * audioScaleCtrl;
+
+            float env =
+                bandEnvFromFreqIndex(
+                    barIdx,
+                    bandCount,
+                    powerCtrl,
+                    0.5,
+                    0.0,
+                    1
+                );
+
+            float barHeight =
+                env * maxBarHeight;
+
+            if (trailsOn > 0.5)
+            {
+                float trailEnv1 =
+                    bandEnvFromFreqIndex(
+                        barIdx,
+                        bandCount,
+                        powerCtrl,
+                        0.5,
+                        0.0,
+                        3
+                    );
+
+                float trailHeight1 =
+                    trailEnv1 * maxBarHeight;
+
+                if (
+                    p.x > left &&
+                    p.x < right &&
+                    p.y > marginY &&
+                    p.y < marginY + trailHeight1)
+                {
+                    vec3 trailCol1 =
+                        mix(
+                            vec3(0.1, 0.4, 0.9),
+                            vec3(0.7, 1.0, 1.0),
+                            clamp(trailEnv1, 0.0, 1.0)
+                        );
+                    col = mix(col, trailCol1, 0.25);
+                }
+
+                float trailEnv2 =
+                    bandEnvFromFreqIndex(
+                        barIdx,
+                        bandCount,
+                        powerCtrl,
+                        0.5,
+                        0.0,
+                        4
+                    );
+
+                float trailHeight2 =
+                    trailEnv2 * maxBarHeight;
+
+                if (
+                    p.x > left &&
+                    p.x < right &&
+                    p.y > marginY &&
+                    p.y < marginY + trailHeight2)
+                {
+                    vec3 trailCol2 =
+                        mix(
+                            vec3(0.1, 0.4, 0.9),
+                            vec3(0.7, 1.0, 1.0),
+                            clamp(trailEnv2, 0.0, 1.0)
+                        );
+                    col = mix(col, trailCol2, 0.15);
+                }
+            }
+
+            if (
+                p.x > left &&
+                p.x < right &&
+                p.y > marginY &&
+                p.y < marginY + barHeight)
+            {
+                float intensity =
+                    clamp(env, 0.0, 1.0);
+
+                col =
+                    mix(
+                        vec3(0.1, 0.4, 0.9),
+                        vec3(0.7, 1.0, 1.0),
+                        intensity
+                    );
+            }
+
+            if (peakOn > 0.5)
+            {
+                float peakEnv =
+                    bandEnvFromFreqIndex(
+                        barIdx,
+                        bandCount,
+                        powerCtrl,
+                        0.5,
+                        0.0,
+                        2
+                    );
+
+                float peakY =
+                    marginY +
+                    peakEnv * maxBarHeight;
+
+                float markerHalf =
+                    barWidth * 0.2;
+
+                if (
+                    p.x > left &&
+                    p.x < right &&
+                    p.y > peakY - markerHalf &&
+                    p.y < peakY + markerHalf)
+                {
+                    col = vec3(1.0, 0.9, 0.5);
+                }
+            }
+        }
+    }
+
+    fragColor = vec4(col, 1.0);
+}

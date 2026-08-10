@@ -36,6 +36,73 @@ float fft(float frequency)
 }
 ```
 
+## Semantic audio helpers
+
+Shaders may use these conventional helper names:
+
+```glsl
+float AudioFFT(float frequency);    // current/raw FFT frame
+float AudioBuffer1(float frequency); // persistent/processed FFT state #1
+float AudioBuffer2(float frequency); // independent persistent state #2
+```
+
+The converter follows calls reachable from `mainImage()` or `main()`. Merely
+declaring `AudioBuffer1()` does not allocate persistent state; calling it directly
+or through other helpers does. When it is used, the generated project contains
+an internal persistent array with the same numbered name. Every used positive
+integer suffix receives an independent array, with no converter-defined maximum.
+These arrays are not exposed as effect parameters and remain independent from
+the raw `SpecBandArray`, so a shader can use all paths at once. The unnumbered
+`AudioBuffer()` spelling remains supported for older inputs.
+
+Each numbered helper must have integer mode and source declarations in the
+original shader:
+
+```glsl
+const int AudioBuffer1Mode = 1;
+const int AudioBuffer1Source = 0;
+```
+
+Source `0` reads raw FFT. A positive source reads that numbered buffer, and the
+converter orders updates by these dependencies. Mode `0` copies its source into
+independent persistent state. Mode `1` applies the reference attack/decay
+envelope and requires `ZGEAttack` and `ZGEDecay`. Missing declarations,
+dependency cycles, and unsupported modes are reported as conversion errors.
+
+Mode `2` is peak decay: it rises immediately and falls linearly at the
+`ZGEPeakDecay` rate. Mode `3` is trails decay: it rises immediately and falls
+exponentially at the `ZGETrailDecay` rate. Both rates are evaluated per second
+using ZGE's frame delta.
+
+### Audio buffers are implemented by ZGE
+
+The persistent behavior of `AudioBuffer1()`, `AudioBuffer2()`, and subsequent
+numbered helpers exists only in the converted ZGE project. A normal ShaderToy
+Image fragment shader cannot maintain a mutable FFT array between frames:
+ordinary GLSL fragment invocations do not share writable global state, and
+values created during one frame do not automatically persist into the next.
+
+For this reason, the ShaderToy versions of the numbered helpers are only
+fallbacks. They commonly return `AudioFFT(frequency)` so the Image shader remains
+self-contained and produces a useful preview, but they do not provide attack,
+decay, peak hold, trails, or other persistent processing in ShaderToy.
+
+During conversion, the helper names are treated as semantic markers. The
+converter replaces their fallback behavior with reads from persistent ZGE
+arrays, and ZGE updates those arrays once per frame according to each buffer's
+mode and source declarations. This persistent state is outside GLSL and is why
+the converted effect can implement behavior that the standalone Image shader
+cannot.
+
+ShaderToy can implement cross-frame state through separate Buffer passes and
+feedback textures, but those are a different mechanism and are intentionally
+not used by this convention or by the converter's ZGE audio buffers.
+
+If `ZGEAttack` and/or `ZGEDecay` parameters are declared, they configure the
+buffer's attack/release envelope using the reference ZGE behavior. Without those
+parameters the buffer still exists and tracks the current spectrum, retaining a
+separate stateful path for other processing modes.
+
 The converter automatically changes `texture()` calls to `texture2D()` when required for ZGameEditor compatibility.
 
 ## Reading frequency ranges

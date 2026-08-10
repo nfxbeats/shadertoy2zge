@@ -160,6 +160,18 @@ document.getElementById('convertButton').addEventListener('click', async functio
     }
 
     const rawInputCode = inputCodeElement.value;
+    // Analyze the untouched source: later parameter extraction and compatibility
+    // rewrites can remove or alter the helper declarations and their call sites.
+    const audioMarkers = analyzeAudioMarkers(rawInputCode);
+    const audioConfigurationErrors = audioMarkers.errors;
+    if (audioConfigurationErrors.length > 0) {
+        displayNotification(`Error: ${audioConfigurationErrors.join(' ')}`, 'error');
+        return;
+    }
+    const audioBufferSuffixes = [
+        ...(audioMarkers.usesLegacyAudioBuffer ? [''] : []),
+        ...audioMarkers.orderedBuffers.map(buffer => buffer.id),
+    ];
     let zgedelta = false; // Flag for ZGEDelta speed parameter
     let title = "ZGEshader"; // Default shader title
     let author = "Shader author"; // Default shader author
@@ -281,6 +293,11 @@ document.getElementById('convertButton').addEventListener('click', async functio
     if (ZGEvars.length === 0) {
         displayNotification('Info: No custom shader parameters (e.g., float ZGEmyVar = 1.0;) were found in your code. If you expected parameters, please check the syntax.', 'info');
     }
+    const audioParameterErrors = validateAudioBufferParameters(audioMarkers.orderedBuffers, ZGEvars.map(param => param.id));
+    if (audioParameterErrors.length > 0) {
+        displayNotification(`Error: ${audioParameterErrors.join(' ')}`, 'error');
+        return;
+    }
 
     // 2. Fetch and process the ZGE project template
     const selectedTemplate = templateSelect.value;
@@ -391,6 +408,19 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
         });
 
+        // The semantic audio helpers are independent of user-selected iChannels.
+        // Both may coexist: SpecBandArray is the current host FFT and AudioBuffer
+        // is converter-owned persistent state.
+        if (audioMarkers.usesAudioFFT || audioBufferSuffixes.length > 0) {
+            usesAudioSpectrum = true;
+            iChannelUniformsDeclaration += 'uniform sampler2D AudioFFTSampler;\n';
+            audioShaderVariablesXMLString += '        <ShaderVariable VariableName="AudioFFTSampler" ValueArrayRef="SpecBandArray"/>\n';
+        }
+        audioBufferSuffixes.forEach(suffix => {
+            iChannelUniformsDeclaration += `uniform sampler2D AudioBuffer${suffix}Sampler;\n`;
+            audioShaderVariablesXMLString += `        <ShaderVariable VariableName="AudioBuffer${suffix}Sampler" ValueArrayRef="AudioBuffer${suffix}"/>\n`;
+        });
+
         // 4. Prepare the final shader code for injection
         // Remove any hardcoded Shadertoy iChannel defines or old tex1/tex2 uniforms from user's shader body,
         // as these are now handled dynamically.
@@ -398,6 +428,46 @@ document.getElementById('convertButton').addEventListener('click', async functio
         userShaderBody = userShaderBody.replace(/uniform sampler2D tex2;\s*\n?/g, '');
         userShaderBody = userShaderBody.replace(/#define iChannel0 tex1\s*\n?/g, '');
         userShaderBody = userShaderBody.replace(/#define iChannel1 tex2\s*\n?/g, '');
+
+        // Keep the public function convention while routing each function to its
+        // own ZGE array. These narrowly-shaped helpers intentionally replace only
+        // the conventional one-float definitions, never arbitrary call text.
+        function replaceAudioHelperBody(code, name, sampler) {
+            const header = new RegExp(`\\bfloat\\s+${name}\\s*\\(\\s*float\\s+(\\w+)\\s*\\)\\s*\\{`, 'g');
+            const replacements = [];
+            let match;
+            while ((match = header.exec(code)) !== null) {
+                const openBrace = header.lastIndex - 1;
+                let depth = 1;
+                let cursor = openBrace + 1;
+                let quote = '';
+                let lineComment = false;
+                let blockComment = false;
+                for (; cursor < code.length && depth; cursor++) {
+                    const char = code[cursor];
+                    const next = code[cursor + 1];
+                    if (lineComment) { if (char === '\n') lineComment = false; continue; }
+                    if (blockComment) { if (char === '*' && next === '/') { blockComment = false; cursor++; } continue; }
+                    if (quote) { if (char === quote && code[cursor - 1] !== '\\') quote = ''; continue; }
+                    if (char === '/' && next === '/') { lineComment = true; cursor++; continue; }
+                    if (char === '/' && next === '*') { blockComment = true; cursor++; continue; }
+                    if (char === '"' || char === "'") { quote = char; continue; }
+                    if (char === '{') depth++;
+                    else if (char === '}') depth--;
+                }
+                if (!depth) replacements.push({ start: openBrace + 1, end: cursor - 1, arg: match[1] });
+            }
+            for (let i = replacements.length - 1; i >= 0; i--) {
+                const replacement = replacements[i];
+                const body = `\n    return texture2D(${sampler}, vec2(clamp(${replacement.arg}, 0.0, 1.0), 0.0)).r;\n`;
+                code = code.substring(0, replacement.start) + body + code.substring(replacement.end);
+            }
+            return code;
+        }
+        if (audioMarkers.usesAudioFFT) userShaderBody = replaceAudioHelperBody(userShaderBody, 'AudioFFT', 'AudioFFTSampler');
+        audioBufferSuffixes.forEach(suffix => {
+            userShaderBody = replaceAudioHelperBody(userShaderBody, `AudioBuffer${suffix}`, `AudioBuffer${suffix}Sampler`);
+        });
 
         // Shadertoy exports may include their own iChannel sampler declarations.
         // Remove declarations for channels managed above so each sampler is
@@ -503,6 +573,47 @@ document.getElementById('convertButton').addEventListener('click', async functio
                 parametersArrayMarker,
                 '        <Array Name="SpecBandArray"/>\n' + parametersArrayMarker
             );
+        }
+
+        if (audioBufferSuffixes.length > 0) {
+            const parametersArrayMarker = '        <Array Name="Parameters"';
+            const audioBufferArrays = audioBufferSuffixes
+                .filter(suffix => !templateXMLText.includes(`<Array Name="AudioBuffer${suffix}"`))
+                .map(suffix => `        <Array Name="AudioBuffer${suffix}" Persistent="255"/>\n`)
+                .join('');
+            templateXMLText = templateXMLText.replace(parametersArrayMarker, audioBufferArrays + parametersArrayMarker);
+
+            const attackIndex = ZGEvars.findIndex(param => param.id === 'Attack');
+            const decayIndex = ZGEvars.findIndex(param => param.id === 'Decay');
+            const parameterOffset = zgedelta ? 1 : 0;
+            const attackExpr = attackIndex >= 0 ? `1000.0 * Parameters[${attackIndex + parameterOffset}] * Parameters[${attackIndex + parameterOffset}]` : '0.0';
+            const decayExpr = decayIndex >= 0 ? `1000.0 * Parameters[${decayIndex + parameterOffset}] * Parameters[${decayIndex + parameterOffset}]` : '0.0';
+            const peakDecayIndex = ZGEvars.findIndex(param => param.id === 'PeakDecay');
+            const trailsDecayIndex = ZGEvars.findIndex(param => param.id === 'TrailDecay');
+            function audioParameterExpression(index) {
+                if (index < 0) return '0.0';
+                const parameter = ZGEvars[index];
+                const control = `Parameters[${index + parameterOffset}]`;
+                const min = Number(parameter.rangeFrom);
+                const max = Number(parameter.rangeTo);
+                return parameter.rangeFrom !== undefined && parameter.rangeTo !== undefined && Number.isFinite(min) && Number.isFinite(max)
+                    ? `((${control}) * (${max} - ${min}) + ${min})`
+                    : control;
+            }
+            const peakDecayExpr = audioParameterExpression(peakDecayIndex);
+            const trailsDecayExpr = audioParameterExpression(trailsDecayIndex);
+            const configuredBuffers = [
+                ...(audioMarkers.usesLegacyAudioBuffer ? [{ id: '', mode: 1, source: 0 }] : []),
+                ...audioMarkers.orderedBuffers,
+            ];
+            const bufferUpdate = buildAudioBufferUpdateCode(configuredBuffers, {
+                attack: attackExpr,
+                decay: decayExpr,
+                peakDecay: peakDecayExpr,
+                trailsDecay: trailsDecayExpr,
+            });
+            const onUpdateExpression = /(<OnUpdate>[\s\S]*?<Expression>\s*<!\[CDATA\[)/;
+            templateXMLText = templateXMLText.replace(onUpdateExpression, `$1${bufferUpdate}`);
         }
 
         // 5d. Modify the shader tag to include comment if present
