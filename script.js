@@ -9,7 +9,8 @@ function createIChannelDropdowns() {
         { value: 'internal', text: 'Internal' },
         { value: 'feedback', text: 'Feedback' },
         { value: 'bitmap1', text: 'Image Src' },
-        { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' }
+        { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' },
+        { value: 'text_overlay', text: 'Text Render' }
         // { value: 'bitmap2_new', text: 'Source2 (Nova Textura)' },
         // { value: 'bitmap3_new', text: 'Source3 (Nova Textura)' },
         // { value: 'bitmap4_new', text: 'Source4 (Nova Textura)' }
@@ -105,13 +106,29 @@ populateTemplateSelector();
 // Function to show/hide iChannel config rows based on input code
 function updateIChannelVisibility() {
     const code = inputCodeElement.value;
+    const overlayConfig = TextOverlay.parseTextOverlay(code);
+    const textRenderChannel = overlayConfig ? TextOverlay.outputChannel(overlayConfig.options) : null;
     for (let i = 0; i < 4; i++) {
         const row = document.getElementById(`ichannel${i}Row`);
+        const source = document.getElementById(`ichannel${i}Source`);
         if (row) {
-            if (code.includes(`iChannel${i}`)) {
+            if (code.includes(`iChannel${i}`) || i === textRenderChannel) {
                 row.style.display = 'block';
             } else {
                 row.style.display = 'none';
+            }
+            if (source) {
+                if (i === textRenderChannel) {
+                    source.value = 'text_overlay';
+                    source.disabled = true;
+                    source.title = 'Reserved by ZGETextOverlay output';
+                } else {
+                    if (source.value === 'text_overlay') source.value = 'none';
+                    source.disabled = false;
+                    source.title = '';
+                }
+                const sizeContainer = document.getElementById(`ichannel${i}SizeContainer`);
+                if (sizeContainer) sizeContainer.style.display = source.value === 'internal' ? 'inline' : 'none';
             }
         }
     }
@@ -160,6 +177,10 @@ document.getElementById('convertButton').addEventListener('click', async functio
     }
 
     const rawInputCode = inputCodeElement.value;
+    const textOverlay = TextOverlay.parseTextOverlay(rawInputCode);
+    if (textOverlay) {
+        textOverlay.warnings.forEach(message => displayNotification(`Warning: ${message}`, 'warning'));
+    }
     // Analyze the untouched source: later parameter extraction and compatibility
     // rewrites can remove or alter the helper declarations and their call sites.
     const audioMarkers = analyzeAudioMarkers(rawInputCode);
@@ -320,7 +341,12 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         // FIRST PASS: Collect all active iChannels and their configurations
         const activeChannels = [];
+        const textOverlayChannel = textOverlay ? TextOverlay.outputChannel(textOverlay.options) : null;
         for (let i = 0; i < 4; i++) {
+            if (i === textOverlayChannel) {
+                activeChannels.push({ originalIndex: i, selectedSource: 'text_overlay', internalSize: null });
+                continue;
+            }
             const iChannelRow = document.getElementById(`ichannel${i}Row`);
             // Check if the iChannel UI is visible (meaning iChannelN was detected in shader)
             if (iChannelRow && iChannelRow.style.display !== 'none') {
@@ -400,6 +426,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
                         newBitmapsXMLString += `    <Bitmap Name="${textureResourceName}" Width="256" Height="256"><Producers><BitmapCells CellStyle="5"/></Producers></Bitmap>\n`;
                         definedBitmapResources.add(textureResourceName);
                     }
+                    break;
+                case "text_overlay":
+                    materialTexturesXMLString += `        <MaterialTexture Name="TextOverlayMaterialTexture" RenderTarget="TextOverlayRenderTarget" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
                     break;
                 case "audio_spectrum":
                     // SpecBandArray is bound through Shader.UniformVariables rather
@@ -639,7 +668,8 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         // 5f. Update Parameters SizeDim1 for ZGE custom variables
         const paramsSizeDimRegex = /<Array Name="Parameters" SizeDim1="(\d+)" Persistent="255">/;
-        const numParams = (zgedelta ? 1 : 0) + ZGEvars.length;
+        const textOverlayParameterStart = (zgedelta ? 1 : 0) + ZGEvars.length;
+        const numParams = textOverlayParameterStart + (textOverlay ? TextOverlay.parameterLabels(textOverlay.options).length : 0);
         const paramsSizeDimNew = `<Array Name="Parameters" SizeDim1="${numParams}" Persistent="255">`;
         templateXMLText = templateXMLText.replace(paramsSizeDimRegex, paramsSizeDimNew);
         
@@ -672,6 +702,10 @@ document.getElementById('convertButton').addEventListener('click', async functio
         // 5h. Adjust Speed parameter if zgedelta is used
         if (zgedelta) {
             templateXMLText = templateXMLText.replace("float Speed=1.0;", "float Speed=(Parameters[0]-.5)*4.0;");
+        }
+
+        if (textOverlay) {
+            templateXMLText = TextOverlay.injectTextOverlayXML(templateXMLText, textOverlay.options, textOverlayParameterStart);
         }
 
         // 6. Parameter Values Encoding (for CDATA block)
@@ -765,6 +799,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
             scaledParamValues.push(isNaN(scaledValue) ? 0.0 : +scaledValue); // Ensure valid number, default to 0.0 if NaN
         });
+        if (textOverlay) scaledParamValues.push(...TextOverlay.parameterDefaults(textOverlay.options));
         const encodedHexValues = encodeFloatsToCompressedHex(scaledParamValues);
         templateXMLText = templateXMLText.replace('<![CDATA[789C]]>', `<![CDATA[${encodedHexValues}]]>`);
         // =================================================================
@@ -796,6 +831,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
             paramNamesCDATA += formatParamNameForDisplay(param.id) + tagsString + '\n';
         });
+        if (textOverlay) {
+            TextOverlay.parameterLabels(textOverlay.options).forEach(label => { paramNamesCDATA += label + '\n'; });
+        }
         // Ensure at least one entry if ZGEvars is empty but zgedelta is not, or a default for empty.
         if (ZGEvars.length === 0 && !zgedelta) {
             // If no params and no zgedelta, ZGE might expect a default like "Alpha" or just an empty CDATA

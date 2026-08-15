@@ -42,6 +42,7 @@ The converter extracts metadata from special comment lines in your shader code:
 - **`// Author: [name]`** - Sets the project author (stored in ZGE project metadata and use for credit on the Export dialog.)
 - **`// Comment: [text]`** - Adds a comment to the shader component in ZGE MainShader (not visible, just stored)
 - **`// ZGEdelta`** - Adds a Speed slider that controls animation speed
+- **`// ZGETextOverlay`** - Adds a configurable NanoVG text overlay with font, HSL color, text, size, and position controls. See [TEXT-OVERLAY.md](TEXT-OVERLAY.md).
 
 Example usage:
 ```
