@@ -1,0 +1,103 @@
+/* Layout refinements kept separate from the base theme. */
+.settings-panel {
+  margin-top: 0;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-switch {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.ui-switch:hover {
+  border-color: var(--border2);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.settings-grid {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.template-field {
+  display: grid;
+  grid-template-columns: auto 180px;
+  align-items: center;
+  justify-content: start;
+  gap: 10px;
+}
+
+.template-field label {
+  white-space: nowrap;
+}
+
+#templateSelect {
+  width: 100%;
+}
+
+.channel-config {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.channel-config > div {
+  min-width: 0;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.settings-footer .output-actions {
+  margin-top: 0;
+}
+
+.settings-footer p {
+  margin: 0;
+  color: #687480;
+  font-size: .76rem;
+}
+
+@media (max-width: 760px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-field {
+    width: 100%;
+    grid-template-columns: auto minmax(0, 180px);
+  }
+
+  .settings-footer {
+    align-items: center;
+    flex-direction: row;
+  }
+}
+
+@media (max-width: 560px) {
+  .channel-config {
+    grid-template-columns: 1fr;
+  }
+}
+
+.converter-output {
+  display: none;
+}

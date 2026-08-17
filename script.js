@@ -6,11 +6,11 @@ const templateSelect = document.getElementById('templateSelect');
 function createIChannelDropdowns() {
     const channelOptions = [
         { value: 'none', text: 'None' },
-        { value: 'internal', text: 'Internal' },
         { value: 'feedback', text: 'Feedback' },
         { value: 'bitmap1', text: 'Image Src' },
         { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' },
-        { value: 'text_overlay', text: 'Text Render' }
+        { value: 'text_overlay', text: 'Text Render' },
+        { value: 'internal', text: 'Internal' }
         // { value: 'bitmap2_new', text: 'Source2 (Nova Textura)' },
         // { value: 'bitmap3_new', text: 'Source3 (Nova Textura)' },
         // { value: 'bitmap4_new', text: 'Source4 (Nova Textura)' }
@@ -880,31 +880,19 @@ document.getElementById('convertButton').addEventListener('click', async functio
     }
 
 
-    // Create or update the copy button
-    let copyButton = document.getElementById('copyButton');
+    // Create or update the download link
     let downloadButton = document.getElementById('downloadButton');
-    if (!copyButton) { // If the button doesn't exist, create it
-        copyButton = document.createElement('button');
-        copyButton.id = 'copyButton';
-        copyButton.textContent = '🗐 Copy';
-        document.querySelector('#content').appendChild(copyButton);
-        // Create download button
-        downloadButton = document.createElement('button');
+    if (!downloadButton) {
+        downloadButton = document.createElement('a');
         downloadButton.id = 'downloadButton';
+        downloadButton.className = 'button';
         downloadButton.textContent = '⇩ Download ZGE Project';
-        document.querySelector('#content').appendChild(downloadButton);
+        document.querySelector('#outputActions').appendChild(downloadButton);
     }
     
     // Set the download link with the converted code
     const dataUri = 'data:text/plain;charset=utf-8,' + encodeURIComponent(finalOutputCode);
     downloadButton.setAttribute('href', dataUri);
     downloadButton.setAttribute('download', title + '.zgeproj');
-    copyButton.onclick = function() {
-        navigator.clipboard.writeText(finalOutputCode);
-        alert("Copied");
-    }
-    
-    // Change button to an anchor to support download attribute
-    downloadButton.outerHTML = downloadButton.outerHTML.replace(/^<button/, '<a class="button"').replace(/button>$/, 'a>');
 
 });

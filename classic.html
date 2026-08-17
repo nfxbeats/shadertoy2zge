@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShaderToy to ZGameEditor Converter — Classic</title>
+  <link rel="stylesheet" href="classic.css">
+  <script src="pako.min.js"></script>
+</head>
+<body>
+  <a class="github-fork-ribbon" href="https://github.com/nfxbeats/shadertoy2zge" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
+  <div id="container">
+    <div id="titlebar"><h1>Shadertoy2ZGE</h1><a class="ui-switch" href="index.html">Use modern converter</a></div>
+    <div id="content">
+      <p>Convert Shadertoy shaders into <a href="https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/ZGameEditor%20Visualizer.htm">ZGameEditor</a> engine projects. Ready for use with the standalone engine or the FL Studio plugin.</p>
+      <textarea id="inputCode" placeholder="Paste your ShaderToy code here..." spellcheck="false"></textarea>
+      <div class="template-row"><label for="templateSelect">Template:</label> <select id="templateSelect"></select></div>
+      <div id="ichannelConfig"></div>
+      <button id="convertButton" type="button">Convert ⭆</button>
+      <textarea id="outputCode" placeholder="Converted code will appear here..." readonly></textarea>
+      <div id="notification" class="hidden" role="status" aria-live="polite"></div>
+      <div id="outputActions"></div>
+    </div>
+    <div id="footer"><small><a href="https://github.com/nfxbeats/shadertoy2zge">Source Code and Documentation on GitHub</a></small></div>
+  </div>
+  <script src="audio-analysis.js"></script><script src="text-overlay.js"></script><script src="script.js"></script>
+</body>
+</html>
