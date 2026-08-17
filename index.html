@@ -16,7 +16,6 @@
         <div id="content">
             <p>Convert Shadertoy shaders into <a href="https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/ZGameEditor%20Visualizer.htm">ZGameEditor</a>
                 engine projects. Ready for use with the standalone engine or the <a href="https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/ZGameEditor%20Visualizer.htm">FL Studio</a> plugin.</p>
-            <p><small>Note: <code>texture()</code> calls in your shader code will be automatically converted to <code>texture2D()</code> for compatibility with ZGameEditor.</small></p>
             <textarea id="inputCode" placeholder="Paste your ShaderToy code here..." spellcheck="false"></textarea>
             <div style="margin-bottom: 10px;">
                 <label for="templateSelect">Template:</label>
@@ -30,6 +29,9 @@
             <button id="convertButton">Convert ⭆</button>
             <textarea id="outputCode" placeholder="Converted code will appear here..." readonly></textarea>
             <div id="notification" class="hidden">Operation completed!</div>
+        </div>
+        <div id="footer" align="center">
+            <p> <small><a href="https://github.com/nfxbeats/shadertoy2zge">Source Code and Documentation on GitHub</a></small></p>
         </div>
     </div>
     <script src="audio-analysis.js"></script>
