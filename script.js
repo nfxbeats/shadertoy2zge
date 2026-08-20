@@ -198,6 +198,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
     let author = "Shader author"; // Default shader author
     let comment = ""; // Default shader comment
     const ZGEvars = []; // Array to store ZGE custom parameters
+    let textOverlayZGEIndex = null;
     let finalOutputCode = ""; // Store the final output code for download/copy
     
     // Automatically convert texture() to texture2D() for ZGE compatibility
@@ -249,6 +250,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
     lines.forEach(function(line) {
         let lineIsZGEVar = false;
+        if (textOverlay && textOverlayZGEIndex === null && /^\s*\/\/\s*ZGETextOverlay\b/i.test(line)) {
+            textOverlayZGEIndex = ZGEvars.length;
+        }
         // Check for ZGE variable definitions using the regex
         lineMatches = line.match(zgeVarRegex);
         if (lineMatches) {
@@ -309,6 +313,14 @@ document.getElementById('convertButton').addEventListener('click', async functio
             userShaderBody += line + '\n';
         }
     });
+
+    if (textOverlay && textOverlayZGEIndex === null) textOverlayZGEIndex = ZGEvars.length;
+    const textOverlayParamCount = textOverlay ? TextOverlay.parameterLabels(textOverlay.options).length : 0;
+    function parameterArrayIndexForZGE(index) {
+        const deltaOffset = zgedelta ? 1 : 0;
+        const textOffset = textOverlay && index >= textOverlayZGEIndex ? textOverlayParamCount : 0;
+        return deltaOffset + index + textOffset;
+    }
     
     // Notify if no ZGE parameters found (can be done after parsing all lines)
     if (ZGEvars.length === 0) {
@@ -361,6 +373,12 @@ document.getElementById('convertButton').addEventListener('click', async functio
                     });
                 }
             }
+        }
+
+        const feedbackChannels = activeChannels.filter(channel => channel.selectedSource === 'feedback');
+        if (feedbackChannels.length > 1) {
+            const channelNames = feedbackChannels.map(channel => `iChannel${channel.originalIndex}`).join(', ');
+            throw new Error(`Only one iChannel can use Feedback. Select a different source for ${channelNames}.`);
         }
 
         // SORT: Place feedback first, then all other textures
@@ -614,15 +632,16 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
             const attackIndex = ZGEvars.findIndex(param => param.id === 'Attack');
             const decayIndex = ZGEvars.findIndex(param => param.id === 'Decay');
-            const parameterOffset = zgedelta ? 1 : 0;
-            const attackExpr = attackIndex >= 0 ? `1000.0 * Parameters[${attackIndex + parameterOffset}] * Parameters[${attackIndex + parameterOffset}]` : '0.0';
-            const decayExpr = decayIndex >= 0 ? `1000.0 * Parameters[${decayIndex + parameterOffset}] * Parameters[${decayIndex + parameterOffset}]` : '0.0';
+            const attackParamIndex = attackIndex >= 0 ? parameterArrayIndexForZGE(attackIndex) : -1;
+            const decayParamIndex = decayIndex >= 0 ? parameterArrayIndexForZGE(decayIndex) : -1;
+            const attackExpr = attackIndex >= 0 ? `1000.0 * Parameters[${attackParamIndex}] * Parameters[${attackParamIndex}]` : '0.0';
+            const decayExpr = decayIndex >= 0 ? `1000.0 * Parameters[${decayParamIndex}] * Parameters[${decayParamIndex}]` : '0.0';
             const peakDecayIndex = ZGEvars.findIndex(param => param.id === 'PeakDecay');
             const trailsDecayIndex = ZGEvars.findIndex(param => param.id === 'TrailDecay');
             function audioParameterExpression(index) {
                 if (index < 0) return '0.0';
                 const parameter = ZGEvars[index];
-                const control = `Parameters[${index + parameterOffset}]`;
+                const control = `Parameters[${parameterArrayIndexForZGE(index)}]`;
                 const min = Number(parameter.rangeFrom);
                 const max = Number(parameter.rangeTo);
                 return parameter.rangeFrom !== undefined && parameter.rangeTo !== undefined && Number.isFinite(min) && Number.isFinite(max)
@@ -668,8 +687,17 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         // 5f. Update Parameters SizeDim1 for ZGE custom variables
         const paramsSizeDimRegex = /<Array Name="Parameters" SizeDim1="(\d+)" Persistent="255">/;
-        const textOverlayParameterStart = (zgedelta ? 1 : 0) + ZGEvars.length;
-        const numParams = textOverlayParameterStart + (textOverlay ? TextOverlay.parameterLabels(textOverlay.options).length : 0);
+        const textOverlayParameterStart = (zgedelta ? 1 : 0) + textOverlayZGEIndex;
+        if (textOverlay && textOverlay.options.position === 'scene') {
+            const positionXIndex = ZGEvars.findIndex(param => param.id === 'PositionX');
+            const positionYIndex = ZGEvars.findIndex(param => param.id === 'PositionY');
+            if (positionXIndex < 0 || positionYIndex < 0) {
+                throw new Error('ZGETextOverlay position=scene requires ZGEPositionX and ZGEPositionY parameters.');
+            }
+            textOverlay.options.positionXParameter = parameterArrayIndexForZGE(positionXIndex);
+            textOverlay.options.positionYParameter = parameterArrayIndexForZGE(positionYIndex);
+        }
+        const numParams = (zgedelta ? 1 : 0) + ZGEvars.length + textOverlayParamCount;
         const paramsSizeDimNew = `<Array Name="Parameters" SizeDim1="${numParams}" Persistent="255">`;
         templateXMLText = templateXMLText.replace(paramsSizeDimRegex, paramsSizeDimNew);
         
@@ -677,7 +705,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
         let shaderVarsXMLString = '<ShaderVariable VariableName="iMouse" VariableRef="uMouse"/>\n';
         shaderVarsXMLString += audioShaderVariablesXMLString;
         ZGEvars.forEach(function(param, index) {
-            let paramIndexInArray = index + (zgedelta ? 1 : 0);
+            let paramIndexInArray = parameterArrayIndexForZGE(index);
             let paramControlRef = `Parameters[${paramIndexInArray}]`;
             shaderVarsXMLString += '        '; // Indentation
             shaderVarsXMLString += `<ShaderVariable Name="ZGE${param.id}" VariableName="ZGE${param.id}" ValuePropRef="`;
@@ -740,6 +768,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         let scaledParamValues = []; // Values to be encoded for ZGEP
         if (zgedelta) {scaledParamValues.push(0.5);} // Default for ZGEDelta Speed control
+        const scaledZGEValues = [];
 
         ZGEvars.forEach(function(param) {
             let originalValueFloat;
@@ -797,9 +826,11 @@ document.getElementById('convertButton').addEventListener('click', async functio
                     scaledValue = originalValueFloat;
                 }
             }
-            scaledParamValues.push(isNaN(scaledValue) ? 0.0 : +scaledValue); // Ensure valid number, default to 0.0 if NaN
+            scaledZGEValues.push(isNaN(scaledValue) ? 0.0 : +scaledValue); // Ensure valid number, default to 0.0 if NaN
         });
+        scaledParamValues.push(...scaledZGEValues.slice(0, textOverlayZGEIndex));
         if (textOverlay) scaledParamValues.push(...TextOverlay.parameterDefaults(textOverlay.options));
+        scaledParamValues.push(...scaledZGEValues.slice(textOverlayZGEIndex));
         const encodedHexValues = encodeFloatsToCompressedHex(scaledParamValues);
         templateXMLText = templateXMLText.replace('<![CDATA[789C]]>', `<![CDATA[${encodedHexValues}]]>`);
         // =================================================================
@@ -820,6 +851,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }).join(' ');
         }
 
+        const zgeParameterLabels = [];
         ZGEvars.forEach(function(param) {
             let tagsString = "";
             if (param.listItems && param.listItems.length > 0) {
@@ -829,11 +861,13 @@ document.getElementById('convertButton').addEventListener('click', async functio
             if (param.tags && param.tags.length > 0) {
                 tagsString += ' ' + param.tags.map(tag => '@' + tag).join(' ');
             }
-            paramNamesCDATA += formatParamNameForDisplay(param.id) + tagsString + '\n';
+            zgeParameterLabels.push(formatParamNameForDisplay(param.id) + tagsString);
         });
+        zgeParameterLabels.slice(0, textOverlayZGEIndex).forEach(label => { paramNamesCDATA += label + '\n'; });
         if (textOverlay) {
             TextOverlay.parameterLabels(textOverlay.options).forEach(label => { paramNamesCDATA += label + '\n'; });
         }
+        zgeParameterLabels.slice(textOverlayZGEIndex).forEach(label => { paramNamesCDATA += label + '\n'; });
         // Ensure at least one entry if ZGEvars is empty but zgedelta is not, or a default for empty.
         if (ZGEvars.length === 0 && !zgedelta) {
             // If no params and no zgedelta, ZGE might expect a default like "Alpha" or just an empty CDATA
