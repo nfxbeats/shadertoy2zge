@@ -108,11 +108,12 @@ function updateIChannelVisibility() {
     const code = inputCodeElement.value;
     const overlayConfig = TextOverlay.parseTextOverlay(code);
     const textRenderChannel = overlayConfig ? TextOverlay.outputChannel(overlayConfig.options) : null;
+    const commentMappings = IChannelMapping.parseIChannelMappings(code).assignments;
     for (let i = 0; i < 4; i++) {
         const row = document.getElementById(`ichannel${i}Row`);
         const source = document.getElementById(`ichannel${i}Source`);
         if (row) {
-            if (code.includes(`iChannel${i}`) || i === textRenderChannel) {
+            if (code.includes(`iChannel${i}`) || i === textRenderChannel || commentMappings.has(i)) {
                 row.style.display = 'block';
             } else {
                 row.style.display = 'none';
@@ -122,6 +123,10 @@ function updateIChannelVisibility() {
                     source.value = 'text_overlay';
                     source.disabled = true;
                     source.title = 'Reserved by ZGETextOverlay output';
+                } else if (commentMappings.has(i)) {
+                    source.value = commentMappings.get(i);
+                    source.disabled = true;
+                    source.title = `Assigned by // iChannel${i}: ${IChannelMapping.sourceLabel(source.value)}`;
                 } else {
                     if (source.value === 'text_overlay') source.value = 'none';
                     source.disabled = false;
@@ -180,6 +185,18 @@ document.getElementById('convertButton').addEventListener('click', async functio
     const textOverlay = TextOverlay.parseTextOverlay(rawInputCode);
     if (textOverlay) {
         textOverlay.warnings.forEach(message => displayNotification(`Warning: ${message}`, 'warning'));
+    }
+    const commentMappings = IChannelMapping.parseIChannelMappings(rawInputCode);
+    commentMappings.warnings.forEach(message => displayNotification(`Warning: ${message}`, 'warning'));
+    if (textOverlay) {
+        const textChannel = TextOverlay.outputChannel(textOverlay.options);
+        if (textChannel !== null && commentMappings.assignments.has(textChannel)) {
+            commentMappings.errors.push(`iChannel${textChannel} is reserved by ZGETextOverlay and cannot also use ${IChannelMapping.sourceLabel(commentMappings.assignments.get(textChannel))}.`);
+        }
+    }
+    if (commentMappings.errors.length > 0) {
+        displayNotification(`Error: ${commentMappings.errors.join(' ')}`, 'error');
+        return;
     }
     // Analyze the untouched source: later parameter extraction and compatibility
     // rewrites can remove or alter the helper declarations and their call sites.
@@ -362,7 +379,8 @@ document.getElementById('convertButton').addEventListener('click', async functio
             const iChannelRow = document.getElementById(`ichannel${i}Row`);
             // Check if the iChannel UI is visible (meaning iChannelN was detected in shader)
             if (iChannelRow && iChannelRow.style.display !== 'none') {
-                const selectedSource = document.getElementById(`ichannel${i}Source`).value;
+                const selectedSource = commentMappings.assignments.get(i)
+                    || document.getElementById(`ichannel${i}Source`).value;
                 if (selectedSource !== "none") {
                     activeChannels.push({
                         originalIndex: i,

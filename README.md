@@ -43,6 +43,8 @@ The converter extracts metadata from special comment lines in your shader code:
 - **`// Comment: [text]`** - Adds a comment to the shader component in ZGE MainShader (not visible, just stored)
 - **`// ZGEdelta`** - Adds a Speed slider that controls animation speed
 - **`// ZGETextOverlay`** - Adds a configurable NanoVG text overlay with font, HSL color, text, size, and position controls. See [TEXT-OVERLAY.md](TEXT-OVERLAY.md).
+- **`// iChannelN: Feedback`** - Assigns `iChannelN` to the ZGE feedback texture.
+- **`// iChannelN: Image Src`** - Assigns `iChannelN` to the layer's Image Src texture.
 
 Example usage:
 ```
@@ -50,6 +52,8 @@ Example usage:
 // Author: CreativeCoder
 // Comment: A mesmerizing color-changing effect
 // ZGEdelta
+// iChannel0: Feedback
+// iChannel1: Image Src
 ```
 - Extracts any float variable declarations prefixed with ZGE (ex: ZGEtimeFactor, ZGEratio), adds them as uniforms and creates respective parameters to adjust their values.
 - Extracts bool variable declarations prefixed with ZGE (ex: ZGEEnableEffect, ZGEInvert), adds them as float uniforms (0.0/1.0) and creates checkbox controls in ZGE.
@@ -68,6 +72,15 @@ FL Studio definitions:
 
 You can define any valid iChannel source using the iChannel Source dropdown. A shader that demonstrates texture inputs can be seen here:
 https://www.shadertoy.com/view/WXtcDf 
+
+Feedback and Image Src can instead be assigned declaratively in shader comments:
+
+```glsl
+// iChannel0: Feedback
+// iChannel1: Image Src
+```
+
+The converter detects these directives case-insensitively, displays the corresponding channel rows, selects and locks their source dropdowns, and uses the assignments during conversion. A shader may assign at most one channel to Feedback. Duplicate assignments, unsupported source names, and conflicts with a `ZGETextOverlay` channel stop conversion with an error. Channels without directives remain manually configurable.
 
 Audio Reactive Demo:
 https://www.shadertoy.com/view/NfVGD1
