@@ -9,6 +9,7 @@ function createIChannelDropdowns() {
         { value: 'feedback', text: 'Feedback' },
         { value: 'bitmap1', text: 'Image Src' },
         { value: 'audio_spectrum', text: 'Audio Spectrum (FFT)' },
+        { value: 'audio_waveform', text: 'AudioArray (Waveform / PCM)' },
         { value: 'text_overlay', text: 'Text Render' },
         { value: 'internal', text: 'Internal' }
         // { value: 'bitmap2_new', text: 'Source2 (Nova Textura)' },
@@ -366,6 +367,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
         let newBitmapsXMLString = "";         // For ZGEP <Content> if new bitmaps are needed
         let audioShaderVariablesXMLString = ""; // Binds FL Studio's spectrum array as sampler2D uniforms
         let usesAudioSpectrum = false;
+        let usesAudioWaveform = false;
         const definedBitmapResources = new Set(); // Track new bitmaps to avoid duplicates
 
         // FIRST PASS: Collect all active iChannels and their configurations
@@ -415,12 +417,14 @@ document.getElementById('convertButton').addEventListener('click', async functio
             const uniformName = `iChannel${channel.originalIndex}`;
             const selectedSource = channel.selectedSource;
 
-            if (selectedSource === "audio_spectrum") {
+            if (selectedSource === "audio_spectrum" || selectedSource === "audio_waveform") {
                 // ValueArrayRef exposes a ZGE Array to GLSL as a 2D texture. Keep the
                 // Shadertoy uniform name so it does not consume a Material texture slot.
                 iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\n`;
-                audioShaderVariablesXMLString += `        <ShaderVariable VariableName="${uniformName}" ValueArrayRef="SpecBandArray"/>\n`;
-                usesAudioSpectrum = true;
+                const arrayName = selectedSource === 'audio_waveform' ? 'AudioArray' : 'SpecBandArray';
+                audioShaderVariablesXMLString += `        <ShaderVariable VariableName="${uniformName}" ValueArrayRef="${arrayName}"/>\n`;
+                if (selectedSource === 'audio_waveform') usesAudioWaveform = true;
+                else usesAudioSpectrum = true;
             } else {
                 iChannelUniformsDeclaration += `uniform sampler2D ${uniformName};\nuniform sampler2D ${builtinName};\n#define ${uniformName} ${builtinName}\n`;
             }
@@ -467,7 +471,8 @@ document.getElementById('convertButton').addEventListener('click', async functio
                     materialTexturesXMLString += `        <MaterialTexture Name="TextOverlayMaterialTexture" RenderTarget="TextOverlayRenderTarget" TexCoords="1" TextureSlot="${newSlotIndex}"/>\n`;
                     break;
                 case "audio_spectrum":
-                    // SpecBandArray is bound through Shader.UniformVariables rather
+                case "audio_waveform":
+                    // Audio arrays are bound through Shader.UniformVariables rather
                     // than Material.Textures, so no MaterialTexture is required.
                     break;
             }
@@ -637,6 +642,14 @@ document.getElementById('convertButton').addEventListener('click', async functio
             templateXMLText = templateXMLText.replace(
                 parametersArrayMarker,
                 '        <Array Name="SpecBandArray"/>\n' + parametersArrayMarker
+            );
+        }
+
+        if (usesAudioWaveform && !templateXMLText.includes('<Array Name="AudioArray"')) {
+            const parametersArrayMarker = '        <Array Name="Parameters"';
+            templateXMLText = templateXMLText.replace(
+                parametersArrayMarker,
+                '        <Array Name="AudioArray"/>\n' + parametersArrayMarker
             );
         }
 

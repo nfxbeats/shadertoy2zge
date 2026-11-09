@@ -73,6 +73,7 @@ FL Studio definitions:
 - Feedback: This is the scene that the ZGE shader is layered above. You ShaderToy code should use this as a background layer.
 - Image Src: This is the image source drop down on the ZGE layer properties.
 - Audio Spectrum (FFT): Binds FL Studio's host-populated `SpecBandArray` directly to the selected `iChannel` as a shader texture. Shadertoy spectrum reads such as `texture(iChannel2, vec2(frequency, 0.0)).x` work without an intermediate bitmap. This source supplies the FFT spectrum row only; Shadertoy's waveform data row is not provided. See [AUDIO.md](AUDIO.md) for details on how to make audio reactive compatible shaders
+- AudioArray (Waveform / PCM): Binds FL Studio's raw `AudioArray` to the selected channel, including `iChannel2`. Read signed waveform samples from the red component at `y = 0.0`. This is a separate source from FFT, with interleaved stereo samples; it does not emulate Shadertoy's combined FFT/waveform texture. See [AUDIO.md](AUDIO.md).
 
 You can define any valid iChannel source using the iChannel Source dropdown. A shader that demonstrates texture inputs can be seen here:
 https://www.shadertoy.com/view/WXtcDf 

@@ -242,10 +242,28 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
 The generated project declares an array named `SpecBandArray`. FL Studio populates this array at runtime, and ZGameEditor exposes it to the shader as the selected `iChannel`.
 
+## Raw waveform / PCM input
+
+Choose **AudioArray (Waveform / PCM)** in an iChannel Source dropdown to bind
+FL Studio's host-populated `AudioArray` directly to that shader channel. This
+can be selected for `iChannel2` when a waveform shader is needed instead of the
+usual FFT input. Both converter pages offer the same source options.
+
+Read the red component at `y = 0.0`, with normalized horizontal coordinates
+across the array. Values are signed PCM samples, normally `-1..1`, with silence
+at zero. Stereo samples are interleaved in the original one-dimensional host
+array; they are not split into separate texture rows or color components.
+The host determines the array length at runtime.
+
+This is raw host data, not Shadertoy's combined audio texture: no FFT row,
+waveform row at `y = 1.0`, or automatic conversion to a `0..1` waveform is added.
+Existing Shadertoy waveform shaders may need their sampling logic adapted.
+`AudioFFT()` and numbered `AudioBufferX()` helpers continue to use FFT data
+independently of the selected waveform channel.
+
 ## Current limitations
 
-- Only FFT spectrum data is provided.
-- Shadertoy's waveform row is not available.
-- Audio input depends on FL Studio's ZGameEditor Visualizer host. Standalone ZGameEditor does not populate `SpecBandArray`.
+- Each channel selects either FFT or PCM; a combined Shadertoy audio texture is not provided.
+- Audio input depends on FL Studio's ZGameEditor Visualizer host. Standalone ZGameEditor does not populate `SpecBandArray` or `AudioArray`.
 - The number and precision of available spectrum bands can depend on the host's spectrogram and FFT settings.
 - Temporal attack, release, and smoothing are not automatically added by the converter. A shader samples the current spectrum frame unless smoothing is implemented separately.
