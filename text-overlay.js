@@ -175,7 +175,7 @@ if(${mode}==2) TextOverlayValue+=App.DeltaTime;
 if(${mode}==3) { TextOverlayRandomClock+=App.DeltaTime; if(TextOverlayRandomClock>=1){TextOverlayRandomClock=0;TextOverlayValue=random(0,1000);} }
 TextOverlayText=${formatted};
 int textOverlayFontCount=TextOverlayFontFiles.SizeDim1;
-if(textOverlayFontCount>0) { int nextFont=textOverlayMinInt(textOverlayFontCount-1,textOverlayMaxInt(0,round(Parameters[${p.font}]*1000))); if(nextFont!=TextOverlayCurrentFont){TextOverlayCurrentFont=nextFont;string fn=TextOverlayFontFiles[nextFont];TextOverlayFontId=nvg_FindFont(fn);if(TextOverlayFontId<0){xptr mem;int bytes;ZgeVizFontGetContent(TextOverlayFontDir+fn,mem,bytes);TextOverlayFontId=nvg_CreateFontMem(fn,mem,bytes,0);}} }
+if(TextOverlayContext!=null && textOverlayFontCount>0) { nvg_SetContext(TextOverlayContext);int nextFont=textOverlayMinInt(textOverlayFontCount-1,textOverlayMaxInt(0,round(Parameters[${p.font}]*1000))); if(nextFont!=TextOverlayCurrentFont){TextOverlayCurrentFont=nextFont;string fn=TextOverlayFontFiles[nextFont];TextOverlayFontId=nvg_FindFont(fn);if(TextOverlayFontId<0){xptr mem;int bytes;ZgeVizFontGetContent(TextOverlayFontDir+fn,mem,bytes);TextOverlayFontId=nvg_CreateFontMem(fn,mem,bytes,0);}} }
 textOverlayHsl(Parameters[${p.hue}],Parameters[${p.saturation}],Parameters[${p.lightness}],TextOverlayColor);
 ]]></Expression></ZExpression>\n`;
         const targetRenderChild = channelOutput ? `    <ZExpression Comment="Render text overlay target"><Expression><![CDATA[

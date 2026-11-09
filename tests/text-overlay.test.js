@@ -75,3 +75,53 @@ const baseProject = '<ZApplication><OnUpdate></OnUpdate><OnRender><RenderSprite/
 const injected = injectTextOverlayXML(baseProject, channel.options, 0);
 assert.ok(injected.indexOf('Render text overlay target') < injected.indexOf('<RenderSprite/>'));
 assert.match(injected, /<RenderTarget Name="TextOverlayRenderTarget" Width="0" Height="0" ClearBeforeUse="255" ClearColor="0 0 0 0"\/>/);
+
+// ZgeNano's active context is shared across effect instances. Execute the
+// generated update with context-local font stores to catch cross-instance loads.
+const vm = require('node:vm');
+const updateExpression = channelXml.updateChild.match(/<!\[CDATA\[([\s\S]*?)\]\]>/)[1]
+    .replace(/\b(?:int|float|string|xptr)\s+(?=[A-Za-z_]\w*\s*[;=])/g, 'var ');
+function checkInstanceOrder(order) {
+    let activeContext;
+    const contexts = [{ fonts: new Map() }, { fonts: new Map() }];
+    const sized = values => Object.assign(values, { SizeDim1: values.length });
+    const instances = contexts.map((context, index) => vm.createContext({
+        TextOverlayContext: context,
+        TextOverlayFontFiles: sized(['Default.ttf', 'Alternate.ttf']),
+        TextOverlayFontDir: 'fonts/', TextOverlayFontId: -1, TextOverlayCurrentFont: -1,
+        UserTextArray: sized([`Instance ${index}`]), Parameters: parameterDefaults(channel.options),
+        TextOverlayColor: {}, TextOverlayValue: 0, TextOverlayRandomClock: 0,
+        App: { DeltaTime: 1 / 60 }, round: Math.round,
+        textOverlayMinInt: Math.min, textOverlayMaxInt: Math.max, textOverlayHsl() {},
+        nvg_SetContext(context) { activeContext = context; },
+        nvg_FindFont(name) { return activeContext.fonts.get(name) ?? -1; },
+        ZgeVizFontGetContent() {},
+        nvg_CreateFontMem(name) {
+            const id = activeContext.fonts.size;
+            activeContext.fonts.set(name, id);
+            return id;
+        },
+    }));
+    // The last initialized/rendered instance may own the active context.
+    activeContext = contexts[1];
+    for (const index of order) {
+        vm.runInContext(updateExpression, instances[index]);
+        assert.equal(activeContext, contexts[index]);
+        assert.equal(contexts[index].fonts.get('Default.ttf'), instances[index].TextOverlayFontId);
+        assert.equal(instances[index].TextOverlayText, `Instance ${index}`);
+    }
+    // Change a font while another instance's context is active.
+    activeContext = contexts[1];
+    instances[0].Parameters[1] = 0.001;
+    vm.runInContext(updateExpression, instances[0]);
+    assert.ok(contexts[0].fonts.has('Alternate.ttf'));
+    assert.ok(!contexts[1].fonts.has('Alternate.ttf'));
+    // A recreated graphics context must reload its own fonts.
+    const replacement = { fonts: new Map() };
+    Object.assign(instances[0], { TextOverlayContext: replacement, TextOverlayFontId: -1, TextOverlayCurrentFont: -1 });
+    activeContext = contexts[1];
+    vm.runInContext(updateExpression, instances[0]);
+    assert.equal(replacement.fonts.get('Alternate.ttf'), instances[0].TextOverlayFontId);
+}
+checkInstanceOrder([0, 1, 0, 1]);
+checkInstanceOrder([1, 0, 1, 0]);
