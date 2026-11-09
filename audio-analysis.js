@@ -65,6 +65,15 @@ function analyzeAudioMarkers(source) {
         if (!declarations.has(id)) declarations.set(id, { id });
         declarations.get(id)[property.toLowerCase()] = Number(value);
     }
+    // Explicit bindings avoid assigning semantics to buffer numbers or labels.
+    const bindingPattern = /^\s*\/\/\s*(?:Audio)?Buffer\s*([1-9]\d*)\s+uses\s+ZGE(\w+)\s*\/\s*ZGE(\w+)\s*\.?\s*$/gm;
+    for (const binding of source.matchAll(bindingPattern)) {
+        const config = declarations.get(binding[1]);
+        if (config && config.mode === 1) {
+            config.attackParameter = binding[2];
+            config.decayParameter = binding[3];
+        }
+    }
 
     const errors = [];
     const orderedBuffers = [];
@@ -81,7 +90,7 @@ function analyzeAudioMarkers(source) {
             errors.push(`AudioBuffer${id} requires integer AudioBuffer${id}Mode and AudioBuffer${id}Source declarations.`);
             return;
         }
-        if (![0, 1, 2, 3].includes(config.mode)) {
+        if (![0, 1, 2, 3, 4].includes(config.mode)) {
             errors.push(`Unsupported audio buffer mode: AudioBuffer${id}Mode=${config.mode}.`);
         }
         visiting.add(id);
@@ -107,10 +116,6 @@ function analyzeAudioMarkers(source) {
 
 function buildAudioBufferUpdateCode(configuredBuffers, processingExpressions) {
     const { attack, decay, peakDecay, trailsDecay } = processingExpressions;
-    const usesAttackDecay = configuredBuffers.some(buffer => buffer.mode === 1);
-    const coefficientSetup = usesAttackDecay
-        ? `float audioAttackCoeff = ${attack} < 0.0000001 ? 0.0 : exp(-1.0 / (clamp(App.FpsCounter, 15, 60) * ${attack} * 0.001));\nfloat audioDecayCoeff = ${decay} < 0.0000001 ? 0.0 : exp(-1.0 / (clamp(App.FpsCounter, 15, 60) * ${decay} * 0.001));\n`
-        : '';
     const updates = configuredBuffers.map(buffer => {
         const suffix = buffer.id;
         const uniqueSuffix = suffix || 'Legacy';
@@ -118,8 +123,11 @@ function buildAudioBufferUpdateCode(configuredBuffers, processingExpressions) {
         const sourceName = buffer.source === 0 ? 'SpecBandArray' : `AudioBuffer${buffer.source}`;
         let assignValue = `audioCurrent${uniqueSuffix}`;
         let smoothingLines = '';
+        let coefficientSetup = '';
         if (buffer.mode === 1) {
-            smoothingLines = `    float audioPrevious${uniqueSuffix} = ${arrayName}[audioBin${uniqueSuffix}];\n    float audioCoeff${uniqueSuffix} = abs(audioCurrent${uniqueSuffix}) > abs(audioPrevious${uniqueSuffix}) ? audioAttackCoeff : audioDecayCoeff;\n`;
+            const controls = processingExpressions.buffers?.[suffix] || { attack, decay };
+            coefficientSetup = `float audioAttackCoeff${uniqueSuffix} = ${controls.attack} < 0.0000001 ? 0.0 : exp(-1.0 / (clamp(App.FpsCounter, 15, 60) * ${controls.attack} * 0.001));\nfloat audioDecayCoeff${uniqueSuffix} = ${controls.decay} < 0.0000001 ? 0.0 : exp(-1.0 / (clamp(App.FpsCounter, 15, 60) * ${controls.decay} * 0.001));\n`;
+            smoothingLines = `    float audioPrevious${uniqueSuffix} = ${arrayName}[audioBin${uniqueSuffix}];\n    float audioCoeff${uniqueSuffix} = abs(audioCurrent${uniqueSuffix}) > abs(audioPrevious${uniqueSuffix}) ? audioAttackCoeff${uniqueSuffix} : audioDecayCoeff${uniqueSuffix};\n`;
             assignValue = `audioCoeff${uniqueSuffix} * (audioPrevious${uniqueSuffix} - audioCurrent${uniqueSuffix}) + audioCurrent${uniqueSuffix}`;
         } else if (buffer.mode === 2) {
             smoothingLines = `    float audioPrevious${uniqueSuffix} = ${arrayName}[audioBin${uniqueSuffix}];\n`;
@@ -129,20 +137,27 @@ function buildAudioBufferUpdateCode(configuredBuffers, processingExpressions) {
             smoothingLines = `    float audioPrevious${uniqueSuffix} = ${arrayName}[audioBin${uniqueSuffix}];\n`;
             const decayedTrail = `audioPrevious${uniqueSuffix} * exp(-(${trailsDecay}) * App.DeltaTime)`;
             assignValue = `audioCurrent${uniqueSuffix} > ${decayedTrail} ? audioCurrent${uniqueSuffix} : ${decayedTrail}`;
+        } else if (buffer.mode === 4) {
+            // Accumulate positive source energy as unbounded travel, not an envelope.
+            assignValue = `${arrayName}[audioBin${uniqueSuffix}] + (audioCurrent${uniqueSuffix} > 0.0 ? audioCurrent${uniqueSuffix} : 0.0) * App.DeltaTime`;
         }
-        return `if (${arrayName}.SizeDim1 != ${sourceName}.SizeDim1) ${arrayName}.SizeDim1 = ${sourceName}.SizeDim1;\nfor (int audioBin${uniqueSuffix} = 0; audioBin${uniqueSuffix} < ${sourceName}.SizeDim1; audioBin${uniqueSuffix}++) {\n    float audioCurrent${uniqueSuffix} = ${sourceName}[audioBin${uniqueSuffix}];\n${smoothingLines}    ${arrayName}[audioBin${uniqueSuffix}] = ${assignValue};\n}`;
+        return `${coefficientSetup}if (${arrayName}.SizeDim1 != ${sourceName}.SizeDim1) ${arrayName}.SizeDim1 = ${sourceName}.SizeDim1;\nfor (int audioBin${uniqueSuffix} = 0; audioBin${uniqueSuffix} < ${sourceName}.SizeDim1; audioBin${uniqueSuffix}++) {\n    float audioCurrent${uniqueSuffix} = ${sourceName}[audioBin${uniqueSuffix}];\n${smoothingLines}    ${arrayName}[audioBin${uniqueSuffix}] = ${assignValue};\n}`;
     }).join('\n');
-    return `\n// Converter-managed independent persistent FFT states.\n${coefficientSetup}${updates}\n`;
+    return `\n// Converter-managed independent persistent FFT states.\n${updates}\n`;
 }
 
 function validateAudioBufferParameters(configuredBuffers, parameterIds) {
     const available = new Set(parameterIds);
     const requirements = [
-        { mode: 1, ids: ['Attack', 'Decay'] },
         { mode: 2, ids: ['PeakDecay'] },
         { mode: 3, ids: ['TrailDecay'] },
     ];
     const errors = [];
+    for (const buffer of configuredBuffers.filter(buffer => buffer.mode === 1)) {
+        const missing = [buffer.attackParameter || 'Attack', buffer.decayParameter || 'Decay']
+            .filter(id => !available.has(id));
+        if (missing.length) errors.push(`AudioBuffer${buffer.id} mode 1 requires ${missing.map(id => `ZGE${id}`).join(' and ')}.`);
+    }
     for (const requirement of requirements) {
         if (!configuredBuffers.some(buffer => buffer.mode === requirement.mode)) continue;
         const missing = requirement.ids.filter(id => !available.has(id));

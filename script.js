@@ -672,11 +672,25 @@ document.getElementById('convertButton').addEventListener('click', async functio
                 ...(audioMarkers.usesLegacyAudioBuffer ? [{ id: '', mode: 1, source: 0 }] : []),
                 ...audioMarkers.orderedBuffers,
             ];
+            const bufferExpressions = {};
+            for (const buffer of configuredBuffers.filter(buffer => buffer.mode === 1)) {
+                function envelopeTimeExpression(id) {
+                    const index = ZGEvars.findIndex(param => param.id === id);
+                    if (index < 0) return '0.0';
+                    const control = `Parameters[${parameterArrayIndexForZGE(index)}]`;
+                    return `1000.0 * ${control} * ${control}`;
+                }
+                bufferExpressions[buffer.id] = {
+                    attack: envelopeTimeExpression(buffer.attackParameter || 'Attack'),
+                    decay: envelopeTimeExpression(buffer.decayParameter || 'Decay'),
+                };
+            }
             const bufferUpdate = buildAudioBufferUpdateCode(configuredBuffers, {
                 attack: attackExpr,
                 decay: decayExpr,
                 peakDecay: peakDecayExpr,
                 trailsDecay: trailsDecayExpr,
+                buffers: bufferExpressions,
             });
             const onUpdateExpression = /(<OnUpdate>[\s\S]*?<Expression>\s*<!\[CDATA\[)/;
             templateXMLText = templateXMLText.replace(onUpdateExpression, `$1${bufferUpdate}`);

@@ -69,10 +69,30 @@ independent persistent state. Mode `1` applies the reference attack/decay
 envelope and requires `ZGEAttack` and `ZGEDecay`. Missing declarations,
 dependency cycles, and unsupported modes are reported as conversion errors.
 
+For independent attack/decay controls, bind each mode `1` buffer explicitly:
+
+```glsl
+// Buffer 1 uses ZGELoAttack / ZGELoDecay.
+// Buffer 2 uses ZGEMidAttack / ZGEMidDecay.
+// Buffer 3 uses ZGEHighAttack / ZGEHighDecay.
+```
+
+`// AudioBuffer1 uses ZGELoAttack / ZGELoDecay.` is also accepted. The named
+parameters must exist. Each buffer receives its own coefficients with the same
+normalized time mapping as the original controls (`1000 * control * control`
+milliseconds). Buffers without a binding continue to use `ZGEAttack` and
+`ZGEDecay`; buffer numbers do not imply a frequency band.
+
 Mode `2` is peak decay: it rises immediately and falls linearly at the
 `ZGEPeakDecay` rate. Mode `3` is trails decay: it rises immediately and falls
 exponentially at the `ZGETrailDecay` rate. Both rates are evaluated per second
 using ZGE's frame delta.
+
+Mode `4` is accumulation: each frequency bin starts at zero and integrates
+positive source values over elapsed seconds (`state += max(source, 0) * dt`).
+The accumulated state does not wrap, decay, or clamp to `0..1`, so it can drive
+continuous angular travel. It requires no additional parameters and may read
+raw FFT or another numbered buffer, updated first according to its dependency.
 
 ### Audio buffers are implemented by ZGE
 
