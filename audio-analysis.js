@@ -58,6 +58,16 @@ function analyzeAudioMarkers(source) {
         .sort((a, b) => a.length - b.length || a.localeCompare(b));
 
     const declarations = new Map();
+    const historySettings = new Map();
+    const historyPattern = /\b(\w+)\s+AudioBuffer([1-9]\d*)History(Frames|Interval)\s*=\s*([^;]+);/g;
+    for (const match of cleaned.matchAll(historyPattern)) {
+        if (!historySettings.has(match[2])) historySettings.set(match[2], {});
+        const settings = historySettings.get(match[2]);
+        const property = match[3].toLowerCase();
+        const value = match[4].trim();
+        const validLiteral = property === 'frames' ? /^[+-]?\d+$/.test(value) : /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value);
+        settings[property] = !Object.hasOwn(settings, property) && validLiteral && match[1] === (property === 'frames' ? 'int' : 'float') ? Number(value) : NaN;
+    }
     const declarationPattern = /\b(?:const\s+)?(?:int|float)\s+AudioBuffer([1-9]\d*)(Mode|Source)\s*=\s*(-?\d+(?:\.0*)?)\s*;/g;
     let declaration;
     while ((declaration = declarationPattern.exec(cleaned)) !== null) {
@@ -90,8 +100,22 @@ function analyzeAudioMarkers(source) {
             errors.push(`AudioBuffer${id} requires integer AudioBuffer${id}Mode and AudioBuffer${id}Source declarations.`);
             return;
         }
-        if (![0, 1, 2, 3, 4].includes(config.mode)) {
+        if (![0, 1, 2, 3, 4, 5].includes(config.mode)) {
             errors.push(`Unsupported audio buffer mode: AudioBuffer${id}Mode=${config.mode}.`);
+        }
+        if (config.mode !== 5 && new RegExp(`\\bfloat\\s+AudioBuffer${id}\\s*\\(\\s*float\\s+\\w+\\s*,\\s*float\\s+\\w+\\s*\\)`).test(cleaned)) {
+            errors.push(`The two-argument AudioBuffer${id}(freq, age) helper requires mode 5 (HISTORY).`);
+        }
+        if (config.mode === 5) {
+            const settings = historySettings.get(id) || {};
+            config.historyFrames = settings.frames ?? 128;
+            config.historyInterval = settings.interval ?? (1 / 30);
+            if (!Number.isInteger(config.historyFrames) || config.historyFrames < 2 || config.historyFrames > 2048) {
+                errors.push(`AudioBuffer${id}HistoryFrames must be an int literal from 2 to 2048.`);
+            }
+            if (!Number.isFinite(config.historyInterval) || config.historyInterval < 0.001 || config.historyInterval > 60) {
+                errors.push(`AudioBuffer${id}HistoryInterval must be a float literal from 0.001 to 60 seconds.`);
+            }
         }
         visiting.add(id);
         if (config.source < 0) {
@@ -121,6 +145,32 @@ function buildAudioBufferUpdateCode(configuredBuffers, processingExpressions) {
         const uniqueSuffix = suffix || 'Legacy';
         const arrayName = `AudioBuffer${suffix}`;
         const sourceName = buffer.source === 0 ? 'SpecBandArray' : `AudioBuffer${buffer.source}`;
+        let historyUpdate = '';
+        if (buffer.mode === 5) {
+            const frames = buffer.historyFrames;
+            const interval = buffer.historyInterval;
+            historyUpdate = `
+// Capture actual spectra into a circular history; never fabricate missed frames.
+${arrayName}HistoryCapture = 0;
+if (${arrayName}HistoryBins != ${sourceName}.SizeDim1) {
+    ${arrayName}HistoryBins = ${sourceName}.SizeDim1;
+    ${arrayName}HistoryHead = 0;
+    ${arrayName}HistoryCount = 0;
+    ${arrayName}HistoryClock = 0;
+    if (${sourceName}.SizeDim1 > 0) {
+        ${arrayName}HistoryTarget.CustomWidth = ${sourceName}.SizeDim1;
+        ${arrayName}HistoryPrevious.CustomWidth = ${sourceName}.SizeDim1;
+    }
+}
+${arrayName}HistoryClock += App.DeltaTime;
+if (${sourceName}.SizeDim1 > 0 && (${arrayName}HistoryCount == 0 || ${arrayName}HistoryClock >= ${interval})) {
+    ${arrayName}HistoryHead = (round(${arrayName}HistoryHead) + 1) % ${frames};
+    if (${arrayName}HistoryCount < ${frames}) ${arrayName}HistoryCount++;
+    ${arrayName}HistoryClock = 0;
+    ${arrayName}HistoryCapture = 1;
+}
+`;
+        }
         let assignValue = `audioCurrent${uniqueSuffix}`;
         let smoothingLines = '';
         let coefficientSetup = '';
@@ -141,7 +191,7 @@ function buildAudioBufferUpdateCode(configuredBuffers, processingExpressions) {
             // Accumulate positive source energy as unbounded travel, not an envelope.
             assignValue = `${arrayName}[audioBin${uniqueSuffix}] + (audioCurrent${uniqueSuffix} > 0.0 ? audioCurrent${uniqueSuffix} : 0.0) * App.DeltaTime`;
         }
-        return `${coefficientSetup}if (${arrayName}.SizeDim1 != ${sourceName}.SizeDim1) ${arrayName}.SizeDim1 = ${sourceName}.SizeDim1;\nfor (int audioBin${uniqueSuffix} = 0; audioBin${uniqueSuffix} < ${sourceName}.SizeDim1; audioBin${uniqueSuffix}++) {\n    float audioCurrent${uniqueSuffix} = ${sourceName}[audioBin${uniqueSuffix}];\n${smoothingLines}    ${arrayName}[audioBin${uniqueSuffix}] = ${assignValue};\n}`;
+        return `${coefficientSetup}if (${arrayName}.SizeDim1 != ${sourceName}.SizeDim1) ${arrayName}.SizeDim1 = ${sourceName}.SizeDim1;\nfor (int audioBin${uniqueSuffix} = 0; audioBin${uniqueSuffix} < ${sourceName}.SizeDim1; audioBin${uniqueSuffix}++) {\n    float audioCurrent${uniqueSuffix} = ${sourceName}[audioBin${uniqueSuffix}];\n${smoothingLines}    ${arrayName}[audioBin${uniqueSuffix}] = ${assignValue};\n}${historyUpdate}`;
     }).join('\n');
     return `\n// Converter-managed independent persistent FFT states.\n${updates}\n`;
 }
@@ -166,6 +216,56 @@ function validateAudioBufferParameters(configuredBuffers, parameterIds) {
     return errors;
 }
 
+// ValueArrayRef textures are always one row in ZGE. Store history in native
+// R32F targets instead, with distinct read/write targets to avoid GPU feedback.
+function buildAudioHistoryResources(buffers) {
+    let content = '', render = '';
+    for (const buffer of buffers.filter(buffer => buffer.mode === 5)) {
+        const name = `AudioBuffer${buffer.id}History`;
+        const vertex = 'void main(){vec4 vertex=gl_Vertex;vertex.xy*=2.0;gl_Position=vertex;}';
+        content += `
+    <RenderTarget Name="${name}Target" CustomWidth="1" CustomHeight="${buffer.historyFrames}" ClearBeforeUse="0" Filter="1" InternalFormat="2"/>
+    <RenderTarget Name="${name}Previous" CustomWidth="1" CustomHeight="${buffer.historyFrames}" ClearBeforeUse="0" Filter="1" InternalFormat="2"/>
+    <Shader Name="${name}WriteShader"><VertexShaderSource><![CDATA[${vertex}]]></VertexShaderSource><FragmentShaderSource><![CDATA[
+uniform sampler2D tex1, currentSpectrum;
+uniform float historyHead, historyCount, historyBins;
+void main(){
+    vec2 uv=vec2(gl_FragCoord.x/historyBins,gl_FragCoord.y/${buffer.historyFrames}.0);
+    float value=0.0;
+    if(floor(gl_FragCoord.y)==historyHead) value=texture2D(currentSpectrum,vec2(uv.x,0.0)).r;
+    else if(historyCount>1.0) value=texture2D(tex1,uv).r;
+    gl_FragColor=vec4(value,0.0,0.0,1.0);
+}]]></FragmentShaderSource><UniformVariables>
+      <ShaderVariable VariableName="currentSpectrum" ValueArrayRef="AudioBuffer${buffer.id}"/>
+      <ShaderVariable VariableName="historyHead" ValuePropRef="${name}Head"/>
+      <ShaderVariable VariableName="historyCount" ValuePropRef="${name}Count"/>
+      <ShaderVariable VariableName="historyBins" ValuePropRef="${name}Bins"/>
+    </UniformVariables></Shader>
+    <Shader Name="${name}CopyShader"><VertexShaderSource><![CDATA[${vertex}]]></VertexShaderSource><FragmentShaderSource><![CDATA[
+uniform sampler2D tex1;
+uniform float historyBins;
+void main(){gl_FragColor=texture2D(tex1,vec2(gl_FragCoord.x/historyBins,gl_FragCoord.y/${buffer.historyFrames}.0));}
+]]></FragmentShaderSource><UniformVariables><ShaderVariable VariableName="historyBins" ValuePropRef="${name}Bins"/></UniformVariables></Shader>
+    <Material Name="${name}WriteMaterial" Shader="${name}WriteShader" ZBuffer="0" Blend="0"><Textures><MaterialTexture RenderTarget="${name}Previous" TexCoords="1"/></Textures></Material>
+    <Material Name="${name}CopyMaterial" Shader="${name}CopyShader" ZBuffer="0" Blend="0"><Textures><MaterialTexture RenderTarget="${name}Target" TexCoords="1"/></Textures></Material>
+`;
+        for (const property of ['Head', 'Count', 'Clock', 'Bins', 'Capture']) content += `    <Variable Name="${name}${property}"/>\n`;
+        render += `    <ZExpression Comment="Capture spectrum history ${buffer.id}"><Expression><![CDATA[
+if (${name}Capture > 0.5 && ${name}Bins > 0) {
+    @SetRenderTarget(RenderTarget : ${name}Target);
+    @UseMaterial(Material : ${name}WriteMaterial);
+    @RenderSprite();
+    @SetRenderTarget(RenderTarget : ${name}Previous);
+    @UseMaterial(Material : ${name}CopyMaterial);
+    @RenderSprite();
+    @SetRenderTarget(RenderTarget : null);
+    ${name}Capture = 0;
+}
+]]></Expression></ZExpression>\n`;
+    }
+    return { content, render };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { analyzeAudioMarkers, buildAudioBufferUpdateCode, validateAudioBufferParameters };
+    module.exports = { analyzeAudioMarkers, buildAudioBufferUpdateCode, validateAudioBufferParameters, buildAudioHistoryResources };
 }

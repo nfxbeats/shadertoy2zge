@@ -1,6 +1,6 @@
 # Shadertoy to ZGameEditor converter. 
 
-Current version: **2.1.0**, released **November 9, 2026**. The shared release
+Current version: **2.2.0**, released **November 9, 2026**. The shared release
 metadata in `version.js` displays the version and release date on both converter
 pages. Update that file when releasing a new version.
 The goal of this web app is an easy, one-shot conversion of Shadertoy shaders to ZGameEditor project files. Just paste in your Shadertoy code and it should spit out a fully functional .zgeproj file.
@@ -17,6 +17,7 @@ There is an [Online Converter](https://nfxbeats.github.io/shadertoy2zge/) that i
 - Enables access to the current Feedback video texture.
 - Enables access to Image Src drop-down texture.
 - Enables access to audio spectrum FFT data for audio reactive shaders
+- Supports independent audio buffer modes `0..5`, including full FFT spectrum history for scrolling spectrograms. See [AUDIO.md](AUDIO.md) for every mode, required controls, and history configuration.
 
 ## How to use
 - Find a usable shadertoy shader such as this [LED Spectrum](https://www.shadertoy.com/view/NfVGD1).

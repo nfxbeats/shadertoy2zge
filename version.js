@@ -1,6 +1,6 @@
 // Update these values together when releasing a new converter version.
 const CONVERTER_RELEASE = Object.freeze({
-    version: '2.1.2',
+    version: '2.2.0',
     date: '2026-11-09',
 });
 

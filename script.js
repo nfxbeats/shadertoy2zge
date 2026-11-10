@@ -409,7 +409,10 @@ document.getElementById('convertButton').addEventListener('click', async functio
         });
 
         // SECOND PASS: Assign to slots sequentially and generate declarations
-        activeChannels.forEach((channel, newSlotIndex) => {
+        let nextMaterialSlot = 0;
+        activeChannels.forEach(channel => {
+            const newSlotIndex = nextMaterialSlot;
+            if (channel.selectedSource !== 'audio_spectrum' && channel.selectedSource !== 'audio_waveform') nextMaterialSlot++;
             const tex = newSlotIndex + 1;
             const builtinName = `tex${tex}`;
             // Keep the shader-facing channel name stable even when ZGE texture
@@ -490,6 +493,15 @@ document.getElementById('convertButton').addEventListener('click', async functio
             iChannelUniformsDeclaration += `uniform sampler2D AudioBuffer${suffix}Sampler;\n`;
             audioShaderVariablesXMLString += `        <ShaderVariable VariableName="AudioBuffer${suffix}Sampler" ValueArrayRef="AudioBuffer${suffix}"/>\n`;
         });
+        const historyBuffers = audioMarkers.orderedBuffers.filter(buffer => buffer.mode === 5);
+        historyBuffers.forEach(buffer => {
+            const name = `AudioBuffer${buffer.id}History`;
+            const slot = (materialTexturesXMLString.match(/<MaterialTexture\b/g) || []).length;
+            materialTexturesXMLString += `        <MaterialTexture Name="${name}Texture" RenderTarget="${name}Target" TexCoords="1" TextureSlot="${slot}"/>\n`;
+            iChannelUniformsDeclaration += `uniform sampler2D tex${slot + 1};\n#define ${name}Sampler tex${slot + 1}\nuniform float ${name}Head;\nuniform float ${name}Count;\n`;
+            audioShaderVariablesXMLString += `        <ShaderVariable VariableName="${name}Head" ValuePropRef="${name}Head"/>\n`;
+            audioShaderVariablesXMLString += `        <ShaderVariable VariableName="${name}Count" ValuePropRef="${name}Count"/>\n`;
+        });
 
         // 4. Prepare the final shader code for injection
         // Remove any hardcoded Shadertoy iChannel defines or old tex1/tex2 uniforms from user's shader body,
@@ -501,9 +513,11 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         // Keep the public function convention while routing each function to its
         // own ZGE array. These narrowly-shaped helpers intentionally replace only
-        // the conventional one-float definitions, never arbitrary call text.
-        function replaceAudioHelperBody(code, name, sampler) {
-            const header = new RegExp(`\\bfloat\\s+${name}\\s*\\(\\s*float\\s+(\\w+)\\s*\\)\\s*\\{`, 'g');
+        // the conventional float definitions (plus history's age argument),
+        // never arbitrary call text.
+        function replaceAudioHelperBody(code, name, sampler, history = null) {
+            const ageArgument = history ? '(?:\\s*,\\s*float\\s+(\\w+))?' : '';
+            const header = new RegExp(`\\bfloat\\s+${name}\\s*\\(\\s*float\\s+(\\w+)${ageArgument}\\s*\\)\\s*\\{`, 'g');
             const replacements = [];
             let match;
             while ((match = header.exec(code)) !== null) {
@@ -525,18 +539,21 @@ document.getElementById('convertButton').addEventListener('click', async functio
                     if (char === '{') depth++;
                     else if (char === '}') depth--;
                 }
-                if (!depth) replacements.push({ start: openBrace + 1, end: cursor - 1, arg: match[1] });
+                if (!depth) replacements.push({ start: openBrace + 1, end: cursor - 1, arg: match[1], age: match[2] });
             }
             for (let i = replacements.length - 1; i >= 0; i--) {
                 const replacement = replacements[i];
-                const body = `\n    return texture2D(${sampler}, vec2(clamp(${replacement.arg}, 0.0, 1.0), 0.0)).r;\n`;
+                const historyName = `${name}History`;
+                const body = history && replacement.age
+                    ? `\n    float historyAge = floor(clamp(${replacement.age}, 0.0, ${history.historyFrames - 1}.0) + 0.5);\n    if (historyAge >= ${historyName}Count) return 0.0;\n    float historyRow = mod(${historyName}Head - historyAge + ${history.historyFrames}.0, ${history.historyFrames}.0);\n    return texture2D(${historyName}Sampler, vec2(clamp(${replacement.arg}, 0.0, 1.0), (historyRow + 0.5) / ${history.historyFrames}.0)).r;\n`
+                    : `\n    return texture2D(${sampler}, vec2(clamp(${replacement.arg}, 0.0, 1.0), 0.0)).r;\n`;
                 code = code.substring(0, replacement.start) + body + code.substring(replacement.end);
             }
             return code;
         }
-        if (audioMarkers.usesAudioFFT) userShaderBody = replaceAudioHelperBody(userShaderBody, 'AudioFFT', 'AudioFFTSampler');
+        if (audioMarkers.usesAudioFFT || audioBufferSuffixes.length > 0) userShaderBody = replaceAudioHelperBody(userShaderBody, 'AudioFFT', 'AudioFFTSampler');
         audioBufferSuffixes.forEach(suffix => {
-            userShaderBody = replaceAudioHelperBody(userShaderBody, `AudioBuffer${suffix}`, `AudioBuffer${suffix}Sampler`);
+            userShaderBody = replaceAudioHelperBody(userShaderBody, `AudioBuffer${suffix}`, `AudioBuffer${suffix}Sampler`, historyBuffers.find(buffer => buffer.id === suffix));
         });
 
         // Shadertoy exports may include their own iChannel sampler declarations.
@@ -660,6 +677,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
                 .map(suffix => `        <Array Name="AudioBuffer${suffix}" Persistent="255"/>\n`)
                 .join('');
             templateXMLText = templateXMLText.replace(parametersArrayMarker, audioBufferArrays + parametersArrayMarker);
+            const historyResources = buildAudioHistoryResources(historyBuffers);
+            templateXMLText = templateXMLText.replace('</Content>', `${historyResources.content}  </Content>`);
+            templateXMLText = templateXMLText.replace(/(<OnRender>\s*)/, `$1${historyResources.render}`);
 
             const attackIndex = ZGEvars.findIndex(param => param.id === 'Attack');
             const decayIndex = ZGEvars.findIndex(param => param.id === 'Decay');
@@ -779,6 +799,12 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         if (textOverlay) {
             templateXMLText = TextOverlay.injectTextOverlayXML(templateXMLText, textOverlay.options, textOverlayParameterStart);
+        }
+        if (historyBuffers.length > 0) {
+            const reset = historyBuffers.map(buffer => `AudioBuffer${buffer.id}HistoryCount=0;AudioBuffer${buffer.id}HistoryClock=0;AudioBuffer${buffer.id}HistoryCapture=0;`).join('');
+            const contextCallback = /void\s+OnGLContextChange\s*\(\s*\)\s*\{/;
+            if (contextCallback.test(templateXMLText)) templateXMLText = templateXMLText.replace(contextCallback, `$&${reset}`);
+            else templateXMLText = templateXMLText.replace('<Content>', `<Content>\n    <ZLibrary Comment="Reset audio history on graphics context change"><Source><![CDATA[void OnGLContextChange(){${reset}}]]></Source></ZLibrary>`);
         }
 
         // 6. Parameter Values Encoding (for CDATA block)
