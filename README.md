@@ -18,6 +18,7 @@ There is an [Online Converter](https://nfxbeats.github.io/shadertoy2zge/) that i
 - Enables access to Image Src drop-down texture.
 - Enables access to audio spectrum FFT data for audio reactive shaders
 - Supports independent audio buffer modes `0..5`, including full FFT spectrum history for scrolling spectrograms. See [AUDIO.md](AUDIO.md) for every mode, required controls, and history configuration.
+- Supports ZGEContainer visual feedback passes, including the Acrylic clock sample. The initial implementation accepts buffer-to-buffer inputs; see [VISUAL-BUFFERS.md](VISUAL-BUFFERS.md) for supported metadata, storage and limitations.
 
 ## How to use
 - Find a usable shadertoy shader such as this [LED Spectrum](https://www.shadertoy.com/view/NfVGD1).

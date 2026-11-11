@@ -29,6 +29,7 @@ function converter() {
         document: { getElementById: id => elements.get(id), createElement: element, querySelector: selector => elements.get(selector.slice(1)) },
         ...require('../audio-analysis.js'),
         TextOverlay: require('../text-overlay.js'), IChannelMapping: require('../ichannel-mapping.js'),
+        VisualBuffers: require('../visual-buffers.js'),
         pako: require('../pako.min.js'), console,
         setTimeout() { return 1; }, clearTimeout() {},
         fetch: async filename => ({ ok: true, text: async () => fs.readFileSync(path.join(__dirname, '..', filename), 'utf8').replace(/\r\n/g, '\n') }),
