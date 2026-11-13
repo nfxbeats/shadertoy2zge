@@ -969,6 +969,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
         // Preserve the established parameter editor/encoding, then add visual passes.
         if (visualContainer) templateXMLText = VisualBuffers.inject(templateXMLText, visualContainer, ZGEvars);
+        templateXMLText = Tempo.inject(templateXMLText);
 
         // Final output assignment
         finalOutputCode = templateXMLText;
@@ -976,11 +977,9 @@ document.getElementById('convertButton').addEventListener('click', async functio
 
     } catch (error) {
         console.error('Processing error:', error);
-        if (visualContainer) {
-            document.getElementById('outputCode').value = '';
-            const download = document.getElementById('downloadButton');
-            if (download) download.setAttribute('href', '#');
-        }
+        document.getElementById('outputCode').value = '';
+        const download = document.getElementById('downloadButton');
+        if (download) download.setAttribute('href', '#');
         displayNotification(`Error during conversion: ${error.message}. Check console for details.`, 'error');
         return; // Halt conversion process
     }

@@ -17,6 +17,7 @@ There is an [Online Converter](https://nfxbeats.github.io/shadertoy2zge/) that i
 - Enables access to the current Feedback video texture.
 - Enables access to Image Src drop-down texture.
 - Enables access to audio spectrum FFT data for audio reactive shaders
+- Supports host tempo synchronization through `TempoBeats()` and `// ZGETempo`. See [TEMPO.md](TEMPO.md) for the AI creator contract and ShaderToy fallback.
 - Supports independent audio buffer modes `0..5`, including full FFT spectrum history for scrolling spectrograms. See [AUDIO.md](AUDIO.md) for every mode, required controls, and history configuration.
 - Supports ZGEContainer visual feedback passes, including the Acrylic clock sample. The initial implementation accepts buffer-to-buffer inputs; see [VISUAL-BUFFERS.md](VISUAL-BUFFERS.md) for supported metadata, storage and limitations.
 
