@@ -34,7 +34,7 @@
         let params = config && config.value === 'none'
             ? BASE_PARAMS.filter(([, key]) => key !== 'textValue')
             : BASE_PARAMS;
-        if (config && config.position === 'scene') params = params.filter(([, key]) => key !== 'x' && key !== 'y');
+        if (config && ['scene', 'shader'].includes(config.position)) params = params.filter(([, key]) => key !== 'x' && key !== 'y');
         return params;
     }
 
@@ -71,7 +71,7 @@
         }
         options.value = String(options.value).toLowerCase();
         options.position = String(options.position).toLowerCase();
-        if (!['text', 'scene'].includes(options.position)) {
+        if (!['text', 'scene', 'shader'].includes(options.position)) {
             warnings.push(`Invalid ZGETextOverlay position mode "${options.position}"; using text.`);
             options.position = 'text';
         }
@@ -126,7 +126,15 @@
         const channelOutput = /^ichannel[0-3]$/.test(config.output);
         const xParam = config.position === 'scene' ? config.positionXParameter : p.x;
         const yParam = config.position === 'scene' ? config.positionYParameter : p.y;
-        const drawText = `if(TextOverlayContext!=null && TextOverlayFontId>=0){nvg_SetContext(TextOverlayContext);nvg_SetViewport(TextOverlayContext);nvg_BeginFrame();nvg_FontFaceId(TextOverlayFontId);nvg_FontSize(Parameters[${p.size}]*Parameters[${p.size}]*App.ViewportHeight);int textHAlign=textOverlayMinInt(2,textOverlayMaxInt(0,round(Parameters[${p.halign}]*3)));int textAlign=textHAlign==0?NVG_ALIGN_RIGHT:(textHAlign==1?NVG_ALIGN_CENTER:NVG_ALIGN_LEFT);nvg_TextAlign(textAlign|NVG_ALIGN_TOP);nvg_FillColor(TextOverlayColor.R,TextOverlayColor.G,TextOverlayColor.B,1);float textX=Parameters[${xParam}]*App.ViewportWidth;float textY=Parameters[${yParam}]*App.ViewportHeight;float textRowWidth=Parameters[${p.rowwidth}]==1?-1:Parameters[${p.rowwidth}]*App.ViewportWidth;float textBoxX=textHAlign==0?-textRowWidth:(textHAlign==1?-textRowWidth*0.5:0);nvg_Translate(textX,textY);if(textRowWidth>=0)nvg_TextBox(textBoxX,0,textRowWidth,TextOverlayText,null);else nvg_Text(0,0,TextOverlayText,null);if(Parameters[${p.showGuides}]>0.5 && textRowWidth>=0){nvg_BeginPath();nvg_MoveTo(textBoxX,-textY);nvg_LineTo(textBoxX,App.ViewportHeight-textY);nvg_MoveTo(textBoxX+textRowWidth,-textY);nvg_LineTo(textBoxX+textRowWidth,App.ViewportHeight-textY);nvg_StrokeColor(0.2,0.5,1,0.85);nvg_StrokeWidth(2);nvg_Stroke();}nvg_EndFrame();}`;
+        // Shader positioning keeps rasterization fixed so scene transforms cannot crop the source.
+        const textX = config.position === 'shader' ? '0.5' : `Parameters[${xParam}]`;
+        const textY = config.position === 'shader' ? '0.5' : `Parameters[${yParam}]`;
+        const packing = config.position === 'shader';
+        const fitText = packing ? `vec4 textBounds=vector4(0,0,0,0);if(textRowWidth>=0)nvg_TextBoxBounds(textBoxX,0,textRowWidth,TextOverlayText,null,textBounds.X);else nvg_TextBounds(0,0,TextOverlayText,null,textBounds.X);float textCenterX=(textBounds.X+textBounds.Z)*0.5;float textCenterY=(textBounds.Y+textBounds.W)*0.5;float textWidth=textBounds.Z-textBounds.X;float textHeight=textBounds.W-textBounds.Y;float textPadding=App.ViewportHeight*0.1+2;float textPackX=App.ViewportWidth/(textWidth+2*textPadding);float textPackY=App.ViewportHeight/(textHeight+2*textPadding);float textPack=textPackX<textPackY?textPackX:textPackY;if(textPack>1)textPack=1;TextOverlayPacking=vector2(textPack,textCenterX/App.ViewportWidth);textX-=textCenterX*textPack;textY-=textCenterY*textPack;` : '';
+        const scaleText = packing ? 'nvg_Scale(TextOverlayPacking.X,TextOverlayPacking.X);' : '';
+        const guideTop = packing ? '-textY/TextOverlayPacking.X' : '-textY';
+        const guideBottom = packing ? '(App.ViewportHeight-textY)/TextOverlayPacking.X' : 'App.ViewportHeight-textY';
+        const drawText = `if(TextOverlayContext!=null && TextOverlayFontId>=0){nvg_SetContext(TextOverlayContext);nvg_SetViewport(TextOverlayContext);nvg_BeginFrame();nvg_FontFaceId(TextOverlayFontId);nvg_FontSize(Parameters[${p.size}]*Parameters[${p.size}]*App.ViewportHeight);int textHAlign=textOverlayMinInt(2,textOverlayMaxInt(0,round(Parameters[${p.halign}]*3)));int textAlign=textHAlign==0?NVG_ALIGN_RIGHT:(textHAlign==1?NVG_ALIGN_CENTER:NVG_ALIGN_LEFT);nvg_TextAlign(textAlign|NVG_ALIGN_TOP);nvg_FillColor(TextOverlayColor.R,TextOverlayColor.G,TextOverlayColor.B,1);float textX=${textX}*App.ViewportWidth;float textY=${textY}*App.ViewportHeight;float textRowWidth=Parameters[${p.rowwidth}]==1?-1:Parameters[${p.rowwidth}]*App.ViewportWidth;float textBoxX=textHAlign==0?-textRowWidth:(textHAlign==1?-textRowWidth*0.5:0);${fitText}nvg_Translate(textX,textY);${scaleText}if(textRowWidth>=0)nvg_TextBox(textBoxX,0,textRowWidth,TextOverlayText,null);else nvg_Text(0,0,TextOverlayText,null);if(Parameters[${p.showGuides}]>0.5 && textRowWidth>=0){nvg_BeginPath();nvg_MoveTo(textBoxX,${guideTop});nvg_LineTo(textBoxX,${guideBottom});nvg_MoveTo(textBoxX+textRowWidth,${guideTop});nvg_LineTo(textBoxX+textRowWidth,${guideBottom});nvg_StrokeColor(0.2,0.5,1,0.85);nvg_StrokeWidth(2);nvg_Stroke();}nvg_EndFrame();}`;
         const onLoaded = `  <OnLoaded>
     <ZExternalLibrary Comment="Text overlay vector graphics" ModuleName="ZgeNano" CallingConvention="1"><Source><![CDATA[
 const int NVG_STENCIL_STROKES=2, NVG_ALIGN_LEFT=1, NVG_ALIGN_CENTER=2, NVG_ALIGN_RIGHT=4, NVG_ALIGN_TOP=8;
@@ -135,6 +143,9 @@ int nvg_SetViewport(xptr context) {} void nvg_BeginFrame() {} void nvg_EndFrame(
 int nvg_CreateFontMem(string name,xptr data,int ndata,int freeData) {} int nvg_FindFont(string name) {}
 void nvg_FontSize(float size) {} void nvg_TextAlign(int align) {} void nvg_FontFaceId(int font) {}
 void nvg_Translate(float x,float y) {}
+${packing ? `void nvg_Scale(float x,float y) {}
+float nvg_TextBounds(float x,float y,string str,string end,ref float bounds) {}
+void nvg_TextBoxBounds(float x,float y,float breakRowWidth,string str,string end,ref float bounds) {}` : ''}
 void nvg_BeginPath() {} void nvg_MoveTo(float x,float y) {} void nvg_LineTo(float x,float y) {}
 void nvg_StrokeColor(float r,float g,float b,float a) {} void nvg_StrokeWidth(float size) {} void nvg_Stroke() {}
 void nvg_FillColor(float r,float g,float b,float a) {} void nvg_Text(float x,float y,string str,string end) {}
@@ -150,7 +161,7 @@ xptr FLPluginHandle; int LayerNr; string FLPluginPath;
 xptr TextOverlayContext; string TextOverlayFontDir, TextOverlayText, TextOverlayLine;
 string[0] UserTextArray; string[0] TextOverlayFontFiles; int TextOverlayFontId=-1, TextOverlayCurrentFont=-1;
 float TextOverlayValue, TextOverlayRandomClock; vec4 TextOverlayColor;
-void textOverlayInitNanoVG() { TextOverlayContext=nvg_Init(NVG_STENCIL_STROKES);TextOverlayFontId=-1;TextOverlayCurrentFont=-1; }
+void textOverlayInitNanoVG() { ${packing ? 'TextOverlayPacking=vector2(1,0);' : ''}TextOverlayContext=nvg_Init(NVG_STENCIL_STROKES);TextOverlayFontId=-1;TextOverlayCurrentFont=-1; }
 void OnGLContextChange() { textOverlayInitNanoVG(); }
 int textOverlayMinInt(int a,int b) { return a<b?a:b; }
 int textOverlayMaxInt(int a,int b) { return a>b?a:b; }
@@ -191,6 +202,18 @@ ${drawText}
     }
 
     function injectTextOverlayXML(xml, config, parameterStart) {
+        if (config.position === 'shader') {
+            if (outputChannel(config) === null) throw new Error('ZGETextOverlay position=shader requires a channel output.');
+            // The portable fallback is identity; ZGE supplies the source packing at render time.
+            const fallback = /\bvec2\s+TextOverlayUV\s*\(\s*vec2\s+(\w+)\s*\)\s*\{\s*return\s+\1\s*;\s*\}/;
+            const shader = /<Shader Name="MainShader"[^>]*>[\s\S]*?<\/Shader>/;
+            const mainShader = xml.match(shader);
+            if (!mainShader || !fallback.test(mainShader[0])) throw new Error('ZGETextOverlay position=shader requires vec2 TextOverlayUV(vec2 uv) { return uv; } and its use for text sampling.');
+            xml = xml.replace(shader, main => main.replace(fallback,
+                'uniform vec2 textOverlayPacking;\nvec2 TextOverlayUV(vec2 uv) { return vec2((uv.x - 0.5 - textOverlayPacking.y) * textOverlayPacking.x + 0.5, (uv.y - 0.5) * textOverlayPacking.x + 0.5); }')
+                .replace('</UniformVariables>', '<ShaderVariable VariableName="textOverlayPacking" VariableRef="TextOverlayPacking"/></UniformVariables>'));
+            xml = xml.replace('</Content>', '<Variable Name="TextOverlayPacking" Type="6"/></Content>');
+        }
         const blocks = buildTextOverlayXML(config, parameterStart);
         xml = xml.replace(/(<ZApplication\b[^>]*>\s*)/, `$1${blocks.onLoaded}`);
         xml = xml.replace('</OnUpdate>', `${blocks.updateChild}  </OnUpdate>`);

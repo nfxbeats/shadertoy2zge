@@ -108,9 +108,10 @@ populateTemplateSelector();
 function updateIChannelVisibility() {
     const code = inputCodeElement.value;
     const isVisualContainer = /^\s*\/\/\s*ZGEContainer\b/m.test(code);
-    const overlayConfig = TextOverlay.parseTextOverlay(code);
+    const channelConfig = IChannelMapping.resolveIChannelMappings(code, TextOverlay);
+    const overlayConfig = channelConfig.textOverlay;
     const textRenderChannel = overlayConfig ? TextOverlay.outputChannel(overlayConfig.options) : null;
-    const commentMappings = IChannelMapping.parseIChannelMappings(code).assignments;
+    const commentMappings = channelConfig.assignments;
     for (let i = 0; i < 4; i++) {
         const row = document.getElementById(`ichannel${i}Row`);
         const source = document.getElementById(`ichannel${i}Source`);
@@ -197,19 +198,16 @@ document.getElementById('convertButton').addEventListener('click', async functio
     const rawInputCode = visualContainer
         ? visualContainer.common + '\n' + visualContainer.image.code
         : inputCodeElement.value;
-    const textOverlay = TextOverlay.parseTextOverlay(rawInputCode);
+    const commentMappings = IChannelMapping.resolveIChannelMappings(rawInputCode, TextOverlay);
+    const textOverlay = commentMappings.textOverlay;
     if (textOverlay) {
         textOverlay.warnings.forEach(message => displayNotification(`Warning: ${message}`, 'warning'));
     }
-    const commentMappings = IChannelMapping.parseIChannelMappings(rawInputCode);
     commentMappings.warnings.forEach(message => displayNotification(`Warning: ${message}`, 'warning'));
-    if (textOverlay) {
-        const textChannel = TextOverlay.outputChannel(textOverlay.options);
-        if (textChannel !== null && commentMappings.assignments.has(textChannel)) {
-            commentMappings.errors.push(`iChannel${textChannel} is reserved by ZGETextOverlay and cannot also use ${IChannelMapping.sourceLabel(commentMappings.assignments.get(textChannel))}.`);
-        }
-    }
     if (commentMappings.errors.length > 0) {
+        document.getElementById('outputCode').value = '';
+        const download = document.getElementById('downloadButton');
+        if (download) download.setAttribute('href', '#');
         displayNotification(`Error: ${commentMappings.errors.join(' ')}`, 'error');
         return;
     }
@@ -395,7 +393,7 @@ document.getElementById('convertButton').addEventListener('click', async functio
             }
             const iChannelRow = document.getElementById(`ichannel${i}Row`);
             // Check if the iChannel UI is visible (meaning iChannelN was detected in shader)
-            if (iChannelRow && iChannelRow.style.display !== 'none') {
+            if (commentMappings.assignments.has(i) || (iChannelRow && iChannelRow.style.display !== 'none')) {
                 const selectedSource = commentMappings.assignments.get(i)
                     || document.getElementById(`ichannel${i}Source`).value;
                 if (selectedSource !== "none") {

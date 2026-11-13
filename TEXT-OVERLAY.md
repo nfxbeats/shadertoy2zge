@@ -40,9 +40,11 @@ The generated text group contains:
 - **Show guides** displays blue vertical lines at the active Row Width boundaries. Guides are hidden when Row Width is at its maximum and wrapping is disabled.
 - **Horizontal align** selects left, center, or right alignment around the text position. Its default is center.
 - **Font hue**, **Font saturation**, and **Font lightness** control the text color using HSL values from 0 to 1.
-- **Text X** and **Text Y** position the overlay in normalized viewport coordinates. They are omitted when `position=scene` binds text placement to the shader's existing **Position X** and **Position Y** controls.
+- **Text X** and **Text Y** position the overlay in normalized viewport coordinates. They are omitted for `position=scene` and `position=shader`.
 
 The text is drawn with NanoVG after the fullscreen shader, so it remains an overlay and is not part of the GLSL program.
+
+A standalone `// iChannel3: Text` mapping also creates the default channel renderer. It can accompany a matching `ZGETextOverlay` directive for custom settings. See [ICHANNEL-MAPPINGS.md](ICHANNEL-MAPPINGS.md).
 
 ## Options
 
@@ -64,7 +66,7 @@ Defaults can be supplied on the directive line:
 | `lightness` | `0..1` | `1` |
 | `x` | `0..1` | `0.5` |
 | `y` | `0..1` | `0.1` |
-| `position` | `text` or `scene` | `scene` |
+| `position` | `text`, `scene`, or `shader` | `scene` |
 | `output` | `overlay` or `iChannel0` through `iChannel3` | `iChannel3` |
 | `overlay` | `true` or `false`; also draw after the shader when using a channel | `false` |
 
@@ -90,6 +92,10 @@ Use `position=scene` when the shader's standard position controls should move th
 float ZGEPositionX = 0.5;
 float ZGEPositionY = 0.5;
 ```
+
+`position=shader` measures the selected text (including row wrapping), vertically centers its measured bounds, and fits the full source into the channel texture with transparent padding. The shader restores its requested size while applying scene position, scale, and rotation. Font Size therefore grows about the vertical center rather than pushing text downward, and oversized text can be moved back into view without losing glyphs at the source texture boundary. **Horizontal align** still controls the horizontal anchor.
+
+This mode adds no **Text X/Y** controls, ignores `x` and `y`, and requires a channel output. Include the portable fallback `vec2 TextOverlayUV(vec2 uv) { return uv; }` in the source and apply it to every text sampling coordinate **before** checking texture boundaries. The converter replaces the fallback with the runtime packing transform and binds its internal uniform; `samples/nfxtext.txt` demonstrates this. Source fitting does not change Font Size or Row Width. Very large text is stored at reduced resolution in the viewport-sized texture and enlarged when sampled, which can soften it.
 
 ## Value modes
 

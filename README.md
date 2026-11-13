@@ -1,6 +1,6 @@
 # Shadertoy to ZGameEditor converter. 
 
-Current version: **2.2.0**, released **November 9, 2026**. The shared release
+Current version: **2.4.0**, released **November 13, 2026**. The shared release
 metadata in `version.js` displays the version and release date on both converter
 pages. Update that file when releasing a new version.
 The goal of this web app is an easy, one-shot conversion of Shadertoy shaders to ZGameEditor project files. Just paste in your Shadertoy code and it should spit out a fully functional .zgeproj file.
@@ -51,7 +51,9 @@ The converter extracts metadata from special comment lines in your shader code:
 - **`// ZGEdelta`** - Adds a Speed slider that controls animation speed
 - **`// ZGETextOverlay`** - Adds a configurable NanoVG text overlay with font, HSL color, text, size, and position controls. See [TEXT-OVERLAY.md](TEXT-OVERLAY.md).
 - **`// iChannelN: Feedback`** - Assigns `iChannelN` to the ZGE feedback texture.
-- **`// iChannelN: Image Src`** - Assigns `iChannelN` to the layer's Image Src texture.
+- **`// iChannelN: ImageSrc`** (also **`Image Src`**) - Assigns `iChannelN` to the layer's Image Src texture.
+- **`// iChannelN: FFT`** - Assigns `iChannelN` to the host FFT spectrum.
+- **`// iChannelN: Text`** - Assigns `iChannelN` to the generated text texture. See [ICHANNEL-MAPPINGS.md](ICHANNEL-MAPPINGS.md) for the full syntax and a paste-ready system prompt addition.
 
 Example usage:
 ```
@@ -81,14 +83,16 @@ FL Studio definitions:
 You can define any valid iChannel source using the iChannel Source dropdown. A shader that demonstrates texture inputs can be seen here:
 https://www.shadertoy.com/view/WXtcDf 
 
-Feedback and Image Src can instead be assigned declaratively in shader comments:
+All four sources can be assigned declaratively in shader comments:
 
 ```glsl
 // iChannel0: Feedback
-// iChannel1: Image Src
+// iChannel1: ImageSrc
+// iChannel2: FFT
+// iChannel3: Text
 ```
 
-The converter detects these directives case-insensitively, displays the corresponding channel rows, selects and locks their source dropdowns, and uses the assignments during conversion. A shader may assign at most one channel to Feedback. Duplicate assignments, unsupported source names, and conflicts with a `ZGETextOverlay` channel stop conversion with an error. Channels without directives remain manually configurable.
+The converter detects these directives case-insensitively, displays the corresponding channel rows, selects and locks their source dropdowns, and uses the assignments during conversion. A shader may assign at most one channel each to Feedback and Text. Text creates the default renderer or uses a matching `ZGETextOverlay` directive. Duplicate assignments, unsupported source names, and conflicting text channels stop conversion with an error. Channels without directives remain manually configurable. See [ICHANNEL-MAPPINGS.md](ICHANNEL-MAPPINGS.md) for source aliases, validation, and prompt instructions.
 
 Audio Reactive Demo:
 https://www.shadertoy.com/view/NfVGD1

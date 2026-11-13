@@ -66,6 +66,25 @@ assert.match(sceneXml.targetRenderChild, /float textX=Parameters\[1\]\*App\.View
 assert.match(sceneXml.targetRenderChild, /float textY=Parameters\[2\]\*App\.ViewportHeight/);
 assert.doesNotMatch(sceneXml.targetRenderChild, /Parameters\[undefined\]/);
 
+// GLSL positioning must not move or crop the text in its source render target.
+const shaderPosition = parseTextOverlay('// ZGETextOverlay: position=shader x=.1 y=.9');
+assert.deepEqual(shaderPosition.warnings, []);
+assert.equal(shaderPosition.options.position, 'shader');
+assert.deepEqual(parameterLabels(shaderPosition.options), parameterLabels(scenePosition.options));
+assert.deepEqual(parameterDefaults(shaderPosition.options), parameterDefaults(scenePosition.options));
+const shaderXml = buildTextOverlayXML(shaderPosition.options, 14);
+assert.match(shaderXml.targetRenderChild, /float textX=0\.5\*App\.ViewportWidth/);
+assert.match(shaderXml.targetRenderChild, /float textY=0\.5\*App\.ViewportHeight/);
+assert.doesNotMatch(shaderXml.targetRenderChild, /Parameters\[undefined\]/);
+// Native bounds functions write four contiguous floats. Marshal a pointer to
+// the first float explicitly; a vec4 argument in the fifth/sixth stack slot
+// is not a native pointer in ZGE's Windows x64 trampoline.
+assert.match(shaderXml.onLoaded, /float nvg_TextBounds\([^\n]*ref float bounds\)/);
+assert.match(shaderXml.onLoaded, /void nvg_TextBoxBounds\([^\n]*ref float bounds\)/);
+assert.match(shaderXml.targetRenderChild, /vec4 textBounds=vector4\(0,0,0,0\)/);
+assert.equal((shaderXml.targetRenderChild.match(/TextOverlayText,null,textBounds\.X\)/g) || []).length, 2);
+
+
 const channel = parseTextOverlay('// ZGETextOverlay: output=iChannel3 position=text overlay=true');
 assert.equal(outputChannel(channel.options), 3);
 const channelXml = buildTextOverlayXML(channel.options, 0);
@@ -79,6 +98,64 @@ assert.match(injected, /<RenderTarget Name="TextOverlayRenderTarget" Width="0" H
 // ZgeNano's active context is shared across effect instances. Execute the
 // generated update with context-local font stores to catch cross-instance loads.
 const vm = require('node:vm');
+// Execute the generated fitting code with oversized glyph/paragraph bounds.
+// Source pixels must fit the target, while unpacking retains their requested size.
+const packedRender = shaderXml.targetRenderChild.match(/<!\[CDATA\[([\s\S]*?)\]\]>/)[1]
+    .replace(/@SetRenderTarget[^;]*;/g, '')
+    .replace(/\bvec4\s+/g, 'var ')
+    .replaceAll(',textBounds.X)', ',textBounds)')
+    .replace(/\b(?:int|float)\s+(?=[A-Za-z_]\w*\s*[;=])/g, 'var ');
+for (const width of [320, 1920]) for (const height of [240, 1080]) {
+    for (const fontSize of [0.1, 0.5, 1]) for (const rowwidth of [0.25, 1]) {
+        for (const halign of [0, 1 / 3, 2 / 3]) {
+            const parameters = Array(14).fill(0).concat(parameterDefaults(shaderPosition.options));
+            parameters[16] = fontSize; parameters[17] = rowwidth; parameters[19] = halign;
+            let bounds, translation, scale;
+            const context = vm.createContext({
+                Parameters: parameters, App: { ViewportWidth: width, ViewportHeight: height },
+                NVG_ALIGN_LEFT: 1, NVG_ALIGN_CENTER: 2, NVG_ALIGN_RIGHT: 4, NVG_ALIGN_TOP: 8,
+                TextOverlayContext: {}, TextOverlayFontId: 0, TextOverlayColor: {}, TextOverlayText: 'Large text',
+                vector2: (X, Y) => ({ X, Y }), vector4: (X, Y, Z, W) => ({ X, Y, Z, W }), round: Math.round,
+                textOverlayMinInt: Math.min, textOverlayMaxInt: Math.max,
+                nvg_SetContext() {}, nvg_SetViewport() {}, nvg_BeginFrame() {}, nvg_EndFrame() {},
+                nvg_FontFaceId() {}, nvg_FontSize() {}, nvg_TextAlign() {}, nvg_FillColor() {},
+                nvg_TextBounds(x, y, text, end, result) { measure(result, false); },
+                nvg_TextBoxBounds(x, y, row, text, end, result) { measure(result, true); },
+                nvg_Translate(x, y) { translation = [x, y]; }, nvg_Scale(x, y) { scale = [x, y]; },
+                nvg_Text() {}, nvg_TextBox() {},
+            });
+            function measure(result, wrapped) {
+                const h = fontSize * fontSize * height;
+                const w = wrapped ? width * rowwidth : h * 12;
+                const left = halign === 0 ? -w : halign < 0.5 ? -w / 2 : 0;
+                bounds = { X: left, Y: h * 0.15, Z: left + w, W: h * (wrapped ? 12 : 1.15) };
+                Object.assign(result, bounds);
+            }
+            vm.runInContext(packedRender, context);
+            const pack = context.TextOverlayPacking;
+            assert.equal(scale[0], scale[1]);
+            for (const x of [bounds.X, bounds.Z]) {
+                const pixel = translation[0] + x * scale[0];
+                assert.ok(pixel > 0 && pixel < width, 'full text width fits before sampling');
+                const uv = (x / width - pack.Y) * pack.X + 0.5;
+                assert.ok(Math.abs(uv * width - pixel) < 1e-7);
+            }
+            for (const y of [bounds.Y, bounds.W]) {
+                const pixel = translation[1] + y * scale[1];
+                assert.ok(pixel > 0 && pixel < height, 'full text height fits before sampling');
+            }
+            const centerY = translation[1] + (bounds.Y + bounds.W) * 0.5 * scale[1];
+            assert.ok(Math.abs(centerY - height / 2) < 1e-7, 'font size never shifts the vertical center');
+        }
+    }
+}
+const packingProject = '<ZApplication><OnUpdate></OnUpdate><OnRender></OnRender><Content><Shader Name="MainShader"><FragmentShaderSource><![CDATA[vec2 TextOverlayUV(vec2 uv) { return uv; }]]></FragmentShaderSource><UniformVariables></UniformVariables></Shader></Content></ZApplication>';
+const fitted = injectTextOverlayXML(packingProject, shaderPosition.options, 14);
+assert.match(fitted, /uniform vec2 textOverlayPacking;/);
+assert.match(fitted, /VariableName="textOverlayPacking" VariableRef="TextOverlayPacking"/);
+assert.match(fitted, /<Variable Name="TextOverlayPacking" Type="6"\/>/);
+assert.throws(() => injectTextOverlayXML(baseProject, shaderPosition.options, 14), /requires vec2 TextOverlayUV/);
+
 const updateExpression = channelXml.updateChild.match(/<!\[CDATA\[([\s\S]*?)\]\]>/)[1]
     .replace(/\b(?:int|float|string|xptr)\s+(?=[A-Za-z_]\w*\s*[;=])/g, 'var ');
 function checkInstanceOrder(order) {
